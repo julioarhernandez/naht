@@ -1,0 +1,110 @@
+
+/*blue mynaht theme*/
+/*
+dark_blue: #111a26
+medium_blue: #005495
+light_blue: #a0b3d9
+white transparent: rgba(255,255,255,.5)
+black transparent: rgba(0,0,0,.5)
+
+*/
+
+#pre-footer { background-color:#a0b3d9; margin-top:45px;}
+#pre-footer h2 {font-size:24px;}
+#footer { background-color:#111a26; color:rgba(255,255,255,.7); margin-top:0; border-top:0;}
+#footer h2 {color:#FFFFFF; font-size:24px;}
+#footer a {color:rgba(255,255,255,.7);}
+#pre-footer .block:first-child h2.block-title,
+#footer .block:first-child h2.block-title {
+    margin-top: 20px;
+}
+
+
+
+.container marketing { align-content:center; text-align:center;}
+.mt30 { margin-top: 30px;}
+
+.hideOverflow
+{
+    overflow:hidden;
+    white-space:nowrap;
+    text-overflow:ellipsis;
+}
+
+@media (max-width: 768px){
+	
+	.btn-block-mobile{
+    display: block;
+    width: 100%;
+}
+	
+	
+}
+
+#main-navbar { background-color: #111a26;}
+
+#copyright { border-top:solid 1px rgba(255,255,255,.2); color: rgba(255,255,255,.5); }
+
+.navbar-header .navbar-nav { margin-top:10px; }
+
+.navbar-inverse {
+    background-color: #111a26;
+    border:0;
+}
+.navbar {
+    border-radius: 0px;
+}
+
+.last-day-banner { font-size: 24px; text-align:center;}
+
+body.front h1.page-header { display:none;}
+body.front .navbar {
+    margin-bottom: 0px;
+}
+
+.mynaht-feature {display:none;}
+
+.main-banner {
+	 text-align:center; 
+	 background-color:#005495;
+	 color:#FFFFFF; 
+	 padding:15px; padding-bottom:30px;
+	 border-bottom-left-radius:6px;
+	 border-bottom-right-radius:6px; 
+	 margin-bottom:12px; 
+	 
+	 }
+	
+.view-certifications .views-row-1 .col-md-4,
+.view-certifications .views-row-3 .col-md-4,
+.view-certifications .views-row-5 .col-md-4 { 
+ float:right;
+}
+
+.view-certifications .row { 
+    padding-bottom: 20px;
+    margin-bottom: 20px;
+    border: 0;
+    border-bottom: 1px solid #ccc;
+}
+	
+.view-certifications .views-row-last .row { 
+    padding-bottom: 0px;
+    margin-bottom: 0px;
+	border-bottom:0;
+	}
+	
+	@media (min-width: 768px){
+.navbar-nav {
+  
+    margin-top:10px;
+}		
+		}
+
+.form-group:last-child, .panel:last-child {
+    margin-bottom: 30px;
+}
+
+button#edit-submit-hidden {
+    display: none !important;
+}

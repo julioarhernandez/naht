@@ -1,0 +1,38 @@
+<?php
+
+
+/**
+ * Implements hook_install().
+ *
+ * Gives access to view landing pages to anonymous and authenticated users.
+ */
+function instapage_install() {
+  // Enable default permissions for system roles.
+  user_role_grant_permissions(DRUPAL_ANONYMOUS_RID, array('access instapage landing pages'));
+  user_role_grant_permissions(DRUPAL_AUTHENTICATED_RID, array('access instapage landing pages'));
+}
+
+/**
+ * Implements hook_uninstall().
+ *
+ * Removes variables that are created by using this module.
+ */
+function instapage_uninstall() {
+  $variables = array(
+    'instapage_user_id',
+    'instapage_plugin_hash',
+    'instapage_pages',
+  );
+  foreach ($variables as $name) {
+    variable_del($name);
+  }
+}
+
+/**
+ * Instapage 7.x-1.4 update: Force user logout.
+ */
+function instapage_update_7100() {
+  variable_set('instapage_user_id', false);
+  variable_set('instapage_plugin_hash', false);
+  drupal_set_message('Instapage has been updated. Please log in with your Instapage account in the module settings.');
+}

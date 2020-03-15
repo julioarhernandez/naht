@@ -1,0 +1,7 @@
+.page-admin-license-manager .views-field-field-license-numbers-1 .double-field-first {
+ display:none;
+}
+.page-admin-license-manager .views-field-field-license-numbers-1 .double-field-second {
+ clear:right !important;
+ display:inline-block !important;
+}

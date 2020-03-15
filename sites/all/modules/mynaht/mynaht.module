@@ -1,0 +1,51 @@
+<?php
+
+/**
+* developed for mynaht.com website
+ */
+function mynaht_js_alter() {
+      drupal_add_js(drupal_get_path('module', 'mynaht') . '/mynaht.js');
+}
+
+function mynaht_preprocess_html ( &$variables ) {  
+  
+  global $user;  
+  
+  foreach ( $user->roles as $role_id => $role ) {  
+	$variables['classes_array'][] = "role-id-".$role_id;  
+	$variables['classes_array'][] = "role-".strtolower(drupal_clean_css_identifier($role));  
+  }  
+  
+  $variables['classes_array'][] = "user-uid-".$user->uid;  
+  
+}  
+
+
+
+// when the student finish the test
+
+// if the test is passed 
+
+//if LicenseField is blank ----------------->>
+/*
+	// create a random license
+	$license =date('yW');
+	$random = rand(1000,9999);
+	//echo $license.$random;
+	$new_value = $license.$random;
+	
+  $account = user_load($uid); // Loading account
+    $edit = array(
+      'drp_field_data_field_license_number' => array(
+        'und' => array(
+          0 => array(
+            'value' => $new_value
+          ),
+        ),
+      ),
+    );
+    user_save($account, $edit);
+    
+ */   
+
+// done

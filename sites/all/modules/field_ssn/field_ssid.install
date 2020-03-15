@@ -1,0 +1,23 @@
+<?php
+/**
+ * @file
+ * Install, update, and uninstall functions for the field_ssid module.
+ */
+
+/**
+ * Implements hook_field_schema().
+ *
+ * Defines the database schema of the field, using the format used by the
+ * Schema API.
+ *
+ * @see schemaapi
+ * @see hook_field_schema()
+ */
+function field_ssid_field_schema($field) {
+  $columns = array(
+    'ssid' => array('type' => 'varchar', 'length' => 128, 'not null' => FALSE),
+  );
+  return array(
+    'columns' => $columns,
+  );
+}

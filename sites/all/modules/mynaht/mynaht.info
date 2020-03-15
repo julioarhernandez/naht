@@ -1,0 +1,6 @@
+name = mynaht.com 
+description = A custom module developed by KNI Design Corp. for the National Association of Healthcare Technicians
+core = 7.x
+files[] = mynaht.module
+scripts[] = mynaht.js
+stylesheets[all][] = mynaht.css

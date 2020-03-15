@@ -1,0 +1,6 @@
+name = Field SSN
+description = An implementation of a field to support Social Security Number.
+core = 7.x
+dependencies[] = aes
+
+files[] = file_ssid_cryptor.inc

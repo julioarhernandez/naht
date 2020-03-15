@@ -1,0 +1,530 @@
+<?php
+
+include_once 'InstapageApi.php';
+
+define('INSTAPAGE_ENDPOINT', 'http://app.instapage.com');
+
+/**
+ * Implements hook_permission().
+ */
+function instapage_permission() {
+  return array(
+    'administer instapage settings' => array(
+      'title' => t('Administer Instapage settings'),
+      'description' => t('Allow users to administer Instapage settings.'),
+    ),
+    'administer instapage landing pages' => array(
+      'title' => t('Administer Instapage'),
+      'description' => t('Allow users to administer Instapage landing pages.'),
+    ),
+    'access instapage landing pages' => array(
+      'title' => t('Access Instapage landing pages'),
+      'description' => t('Allow users to access Instapage landing pages.'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_menu().
+ */
+function instapage_menu() {
+  $items = array();
+
+  $items['admin/config/services/instapage'] = array(
+    'title' => 'Instapage',
+    'description' => 'Administer Instapage settings.',
+    'access arguments' => array('administer instapage settings'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('instapage_admin_settings_form'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  $items['admin/structure/instapage'] = array(
+    'title' => 'Instapage landing pages',
+    'description' => 'Manage Instapage landing pages.',
+    'access arguments' => array('administer instapage landing pages'),
+    'page callback' => 'instapage_pages_config',
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['admin/structure/instapage/new'] = array(
+    'title' => 'Instapage Add New',
+    'description' => 'Add a new Instapage landing page.',
+    'access arguments' => array('administer instapage landing pages'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('instapage_pages_new'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['admin/structure/instapage/%/edit'] = array(
+    'title' => 'Instapage Edit Page',
+    'description' => 'Edit an Instapage landing page.',
+    'access arguments' => array('administer instapage landing pages'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('instapage_pages_edit'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['admin/structure/instapage/%/delete'] = array(
+    'title' => 'Instapage Delete Page',
+    'description' => 'Delete an Instapage landing page.',
+    'access arguments' => array('administer instapage landing pages'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('instapage_pages_delete'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  return $items;
+}
+
+/**
+ * Implement hook_menu_alter().
+ */
+function instapage_menu_alter(&$callbacks) {
+  $pages = variable_get('instapage_pages', NULL);
+
+  if (!empty($pages)) {
+    foreach ($pages as $instapage_id => $path) {
+      $callbacks[$path] = array(
+        'title' => 'Title',
+        'access arguments' => array('access instapage landing pages'),
+        'page callback' => 'instapage_page_callback',
+        'page arguments' => array((string)$instapage_id),
+        'type' => MENU_CALLBACK,
+      );
+    }
+  }
+}
+
+/**
+ * Page callback.
+ */
+function instapage_page_callback($instapage_page_id) {
+  // If present, get query parameters from the URL and pass to Instapage 
+  $parameters = drupal_get_query_parameters();
+  $query = drupal_http_build_query($parameters);
+  
+  if ($query) {
+    $query_string = '?' . $query;
+  }
+  else {
+    $query_string = '';
+  }
+  
+  $url = INSTAPAGE_ENDPOINT .'/server/view-by-id/'. $instapage_page_id . $query_string;
+  $headers = array('headers' => array('User-Agent' => $_SERVER['HTTP_USER_AGENT']));
+  $result = drupal_http_request($url, $headers);
+  print $result->data;
+}
+
+/**
+ * Form to edit Instapage pages.
+ */
+function instapage_admin_settings_form($form_state) {
+  $form = array();
+
+  $instapage_user_id = variable_get('instapage_user_id', false);
+  $token = variable_get('instapage_plugin_hash', false);
+
+  if ($instapage_user_id && $token) {
+    $api = new \InstapageApi();
+    $result = $api->getAccountKeys($token);
+
+    if (isset($result->error) && $result->error) {
+      form_set_error('form', t('Error from Instapage API: @instapage_msg', array('@instapage_msg' => $result->error_message)));
+
+      // Clear variables on form error to match the initial state.
+      variable_set('instapage_user_id', false);
+      variable_set('instapage_plugin_hash', false);
+
+      $form['instapage_user_email'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Email'),
+        '#required' => TRUE,
+      );
+
+      $form['instapage_user_password'] = array(
+        '#type' => 'password',
+        '#title' => t('Password'),
+        '#required' => TRUE,
+      );
+      $form['#validate'][] = 'instapage_admin_settings_form_login_validate';
+      $form['#submit'][] = 'instapage_admin_settings_form_login_submit';
+      $form['actions']['#type'] = 'actions';
+      $form['actions']['submit'] = array('#type' => 'submit', '#value' => t('Save configuration'));
+      return $form;
+    }
+
+    $form['info']['#markup'] = t('You are logged in as @user.', array('@user' => $instapage_user_id));
+    $form['info']['#markup'] .= '<p>' . t('Administer your pages <a href="@link">here</a>.', array('@link' => url('admin/structure/instapage'))) . '</p>';
+    $form['#submit'][] = 'instapage_admin_settings_form_disconnect_submit';
+    $form['actions']['#type'] = 'actions';
+    $form['actions']['submit'] = array('#type' => 'submit', '#value' => t('Disconnect'));
+  }
+  else {
+    $form['instapage_user_email'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Email'),
+      '#required' => TRUE,
+    );
+
+    $form['instapage_user_password'] = array(
+      '#type' => 'password',
+      '#title' => t('Password'),
+      '#required' => TRUE,
+    );
+    $form['#validate'][] = 'instapage_admin_settings_form_login_validate';
+    $form['#submit'][] = 'instapage_admin_settings_form_login_submit';
+    $form['actions']['#type'] = 'actions';
+    $form['actions']['submit'] = array('#type' => 'submit', '#value' => t('Save configuration'));
+  }
+
+  return $form;
+}
+
+/**
+ * Validate Instapage username and password.
+ */
+function instapage_admin_settings_form_login_validate($form, &$form_state) {
+
+  $email = trim($form_state['values']['instapage_user_email']);
+  $password = trim($form_state['values']['instapage_user_password']);
+  $api = new \InstapageApi();
+  $result = $api->authenticate($email, $password);
+
+  if (isset($result['status']) && $result['status'] == 200) {
+    $validate_results = array();
+    $validate_results['user_id'] = $email;
+    $validate_results['plugin_hash'] = $result['content'];
+    $form_state['values']['validate_results'] = $validate_results;
+  }
+  else {
+    form_set_error('form', t('Error from Instapage API: @instapage_msg', array('@instapage_msg' => $result['content'])));
+  }
+}
+
+/**
+ * Disconnect Instapage user account.
+ */
+function instapage_admin_settings_form_disconnect_submit($form, &$form_state) {
+  variable_set('instapage_user_id', false);
+  variable_set('instapage_plugin_hash', false);
+}
+
+/**
+ * Save the User ID and Plugin hash
+ */
+function instapage_admin_settings_form_login_submit($form, &$form_state) {
+  if (isset($form_state['values']['validate_results'])) {
+    variable_set('instapage_user_id', $form_state['values']['validate_results']['user_id']);
+    variable_set('instapage_plugin_hash', $form_state['values']['validate_results']['plugin_hash']);
+  }
+}
+
+/**
+ * Builds the config page.
+ *
+ * @return array
+ */
+function instapage_pages_config() {
+  module_load_include('inc', 'ctools', 'includes/dropbutton.theme');
+
+  $build = array(
+    '#type' => 'markup',
+  );
+
+  $email = variable_get('instapage_user_id', false);
+  $token = variable_get('instapage_plugin_hash', false);
+
+  // If the user is not logged in.
+  if (!$email || !$token) {
+    $build['#markup'] = '<p>' . t('You don\'t have the Instapage account setup yet.') . '</p>';
+    $build['#markup'] .= '<p>' . t('Please connect your account <a href="@link">here</a>.', array('@link' => url('admin/config/services/instapage'))) . '</p>';
+    return $build;
+  }
+
+  $markup = '<p>' . t('Below is a list of Instapage pages connected to your website. Click \'Add new page\' to add another one.') . "</p>";
+  $markup .= '<p>' . t('If you want to show Instapage as a front page, choose a path (for example: front) and then change default front page path <a href="@link">here</a>.', array('@link' => url('admin/config/system/site-information'))) . '</p>';
+
+  $api = new \InstapageApi();
+  $subAccounts = $api->getSubAccounts($token);
+  $result = $api->getPageList($token);
+
+  $table = array(
+    '#theme' => 'table',
+    '#header' => array(
+      t('Title'),
+      t('Sub Account'),
+      t('Path'),
+      t('Operations'),
+    ),
+    '#empty' => t('There are no items yet.'),
+  );
+
+  $rows = array();
+  $pages = variable_get('instapage_pages', array());
+
+  if (isset($result->success) && $result->success) {
+    if (!empty($result->data)){
+      foreach ($pages as $id => $path) {
+        foreach ($result->data as $item) {
+          if ($item->id == $id) {
+
+            // Create the dropdown links.
+            $links = array(
+              array(
+                'title' => t('Edit'),
+                'href' => 'admin/structure/instapage/' . $id . '/edit',
+              ),
+              array(
+                'title' => t('Delete'),
+                'href' => 'admin/structure/instapage/' . $id . '/delete',
+              ),
+            );
+            $operations = theme('links__ctools_dropbutton', array('links' => $links));
+
+            // Create a row array.
+            $url = url($path, array('absolute' => TRUE));
+            $insert = array(
+              $item->title,
+              (isset($subAccounts[$item->subaccount]) ? $subAccounts[$item->subaccount] : ''),
+              l($url, $path),
+              $operations,
+            );
+
+            $rows[] = $insert;
+          }
+        }
+      }
+    }
+  }
+  // Api error.
+  else {
+    form_set_error('form', t('Error from Instapage API: @instapage_msg', array('@instapage_msg' => $result->message)));
+  }
+
+  // Render the page.
+  $table['#rows'] = $rows;
+  $table_render = render($table);
+  $add_new = l(t('Add new page'), 'admin/structure/instapage/new');
+  $add_new_render = '<ul class="action-links"><li>' . $add_new . '</li></ul>';
+  $build['#markup'] = $markup . $add_new_render . $table_render;
+  return $build;
+}
+
+/**
+ * Add new page form.
+ *
+ * @param $form
+ * @param $form_state
+ * @return mixed
+ */
+function instapage_pages_new($form, &$form_state) {
+  $email = variable_get('instapage_user_id', false);
+  $token = variable_get('instapage_plugin_hash', false);
+
+  // User is not logged in.
+  if (!$email || !$token) {
+    drupal_goto('admin/config/services/instapage');
+  }
+
+  $pageLabels = variable_get('instapage_page_labels', array());
+  $pages = variable_get('instapage_pages', array());
+
+  // Only display the pages that do not have paths set.
+  foreach ($pages as $i => $item) {
+    if (array_key_exists($i, $pageLabels)) {
+      unset($pageLabels[$i]);
+    }
+
+  }
+  $form['page'] = array(
+    '#type' => 'select',
+    '#title' => t('Page'),
+    '#required' => TRUE,
+    '#options' => $pageLabels,
+  );
+  $form['path'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Path'),
+    '#required' => TRUE,
+    '#description' => t('Without leading forward slash.'),
+  );
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Save'),
+  );
+  $form['cancel'] = array(
+    '#type' => 'submit',
+    '#value' => t('Cancel'),
+  );
+  return $form;
+}
+
+/**
+ * Add new page form validation.
+ *
+ * @param $form
+ * @param $form_state
+ */
+function instapage_pages_new_validate($form, &$form_state) {
+  if ($form_state['triggering_element']['#value'] == 'Save') {
+    $path = $form_state['input']['path'];
+    // Check if the route already exists.
+    $menu_item = menu_get_item($path);
+    if ($menu_item) {
+      form_set_error('path', t('The path @path is already used.', array('@path' => $path)));
+    }
+  }
+}
+
+/**
+ * Add new page form submit.
+ *
+ * @param $form
+ * @param $form_state
+ */
+function instapage_pages_new_submit($form, &$form_state) {
+  $form_state['redirect'] = 'admin/structure/instapage';
+  if ($form_state['triggering_element']['#value'] == 'Save') {
+    $id = $form_state['input']['page'];
+    $path = $form_state['input']['path'];
+    $token = variable_get('instapage_plugin_hash', false);
+
+    // Send the edit command to the server.
+    $api = new \InstapageApi();
+    $api->editPage($id, $path, $token);
+    menu_rebuild();
+
+    // Set the message and redirect back to the pages form.
+    $labels = variable_get('instapage_page_labels', false);
+    $label = (array_key_exists($id, $labels) ? $labels[$id] : '');
+    drupal_set_message(t('Path for @label has been saved.', array('@label' => $label)));
+  }
+}
+
+/**
+ * Edit page form.
+ *
+ * @param $form
+ * @param $form_state
+ * @return mixed
+ */
+function instapage_pages_edit($form, &$form_state) {
+  $pages = variable_get('instapage_pages', false);
+  $labels = variable_get('instapage_page_labels', false);
+  $id = arg(3);
+  $thisLabel = (array_key_exists($id, $labels) ? $labels[$id] : '');
+
+  $form['label'] = [
+    '#type' => 'item',
+    '#title' => 'Page Label',
+    '#markup' => $thisLabel,
+  ];
+  $form['path'] = [
+    '#type' => 'textfield',
+    '#title' => t('Path'),
+    '#required' => TRUE,
+    '#default_value' => (isset($pages[$id]) ? $pages[$id] : ''),
+    '#description' => t('Without leading forward slash.'),
+  ];
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Save'),
+  );
+  $form['cancel'] = array(
+    '#type' => 'submit',
+    '#value' => t('Cancel'),
+  );
+  return $form;
+}
+
+/**
+ * Edit page validation.
+ *
+ * @param $form
+ * @param $form_state
+ */
+function instapage_pages_edit_validate($form, &$form_state) {
+  if ($form_state['triggering_element']['#value'] == 'Save') {
+    $path = $form_state['input']['path'];
+    // Check if the route already exists.
+    $menu_item = menu_get_item($path);
+    if ($menu_item && $path == $menu_item['path']) {
+      form_set_error('path', t('The path @path is already used.', array('@path' => $path)));
+    }
+  }
+}
+
+/**
+ * Edit page submit.
+ *
+ * @param $form
+ * @param $form_state
+ */
+function instapage_pages_edit_submit($form, &$form_state) {
+  $form_state['redirect'] = 'admin/structure/instapage';
+  if ($form_state['triggering_element']['#value'] == 'Save') {
+    $id = arg(3);
+    $path = $form_state['input']['path'];
+    $token = variable_get('instapage_plugin_hash', false);
+
+    // Send the edit command to the server.
+    $api = new \InstapageApi();
+    $api->editPage($id, $path, $token);
+    menu_rebuild();
+
+    // Set the message and redirect back to the pages form.
+    $labels = variable_get('instapage_page_labels', false);
+    $label = (array_key_exists($id, $labels) ? $labels[$id] : '');
+    drupal_set_message(t('Path for @label has been saved.', array('@label' => $label)));
+  }
+}
+
+/**
+ * Page delete form.
+ *
+ * @param $form
+ * @param $form_state
+ * @return mixed
+ */
+function instapage_pages_delete($form, &$form_state) {
+  $labels = variable_get('instapage_page_labels', false);
+  $id = arg(3);
+  $thisLabel = (array_key_exists($id, $labels) ? $labels[$id] : '');
+
+  $form['label'] = [
+    '#type' => 'item',
+    '#markup' => t('Are you sure you want to delete the path and unpublish the page @label?', ['@label' => $thisLabel]),
+  ];
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Delete'),
+  );
+  $form['cancel'] = array(
+    '#type' => 'submit',
+    '#value' => t('Cancel'),
+  );
+  return $form;
+}
+
+/**
+ * Page delete submit.
+ *
+ * @param $form
+ * @param $form_state
+ */
+function instapage_pages_delete_submit($form, &$form_state) {
+  $form_state['redirect'] = 'admin/structure/instapage';
+  if ($form_state['triggering_element']['#value'] == 'Delete') {
+    $id = arg(3);
+    $token = variable_get('instapage_plugin_hash', false);
+
+    // Send the edit command to the server.
+    $api = new \InstapageApi();
+    $api->editPage($id, '', $token, 0);
+    menu_rebuild();
+
+    // Set the message and redirect back to the pages form.
+    $labels = variable_get('instapage_page_labels', false);
+    $label = (array_key_exists($id, $labels) ? $labels[$id] : '');
+    drupal_set_message(t('Path for @label has been removed.', array('@label' => $label)));
+  }
+}

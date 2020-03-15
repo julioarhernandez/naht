@@ -1,0 +1,204 @@
+<?php
+/**
+ * @file
+ * SSN field implemented using the Field Types API.
+ *
+ * Based on field_example module.
+ * @see field_types
+ * @see field
+ */
+
+include_once('field_ssid_cryptor.inc');
+
+/**
+ * Implements hook_menu().
+ */
+function field_ssid_menu() {
+  $items = array();
+
+  $items['admin/config/content/field_ssid'] = array(
+    'title' => 'SSN Field',
+    'description' => 'Change settings of Social Security Number field.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('field_ssid_admin_settings'),
+    'access arguments' => array('administer site configuration'),
+    'file' => 'field_ssid.admin.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_field_info().
+ *
+ * Provides the description of the field.
+ */
+function field_ssid_field_info() {
+  return array(
+    // We name our field as the associative name of the array.
+    'field_ssid_info' => array(
+      'label' => t('SSN'),
+      'description' => t('Social Security Number.'),
+      'default_widget' => 'field_ssid_text',
+      'default_formatter' => 'field_ssid_regular',
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_validate().
+ *
+ */
+function field_ssid_field_validate($entity_type, $entity, $field, $instance, $langcode, $items, &$errors) {
+  foreach ($items as $delta => $item) {
+    if (!empty($item['ssid'])) {
+      $mask = variable_get('field_ssid_mask', '\d\d\d\-\d\d\-\d\d\d\d');
+      if (!preg_match('/^' . $mask . '$/', $item['ssid'])) {
+        $errors[$field['field_name']][$langcode][$delta][] = array(
+          'error' => 'field_ssid_invalid',
+          'message' => t('SSID field must be in format %mask.', array('%mask' => $mask)),
+        );
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_field_is_empty().
+ */
+function field_ssid_field_is_empty($item, $field) {
+  return empty($item['ssid']);
+}
+
+/**
+ * Implements hook_field_formatter_info().
+ *
+ * @see field_ssid_field_formatter_view()
+ */
+function field_ssid_field_formatter_info() {
+  return array(
+    'field_ssid_regular' => array(
+      'label' => t('Output an SSN'),
+      'field types' => array('field_ssid_info'),
+    ),
+    'field_ssid_obscured' => array(
+      'label' => t('Make visible only last 4 digits'),
+      'field types' => array('field_ssid_info'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_formatter_view().
+ *
+ * @see field_ssid_field_formatter_info()
+ */
+function field_ssid_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display) {
+  $element = array();
+  foreach ($items as $delta => $item) {
+    if ($item['ssid']) {
+      $element[$delta] = array(
+        '#markup' =>
+          empty($item['ssid']) ? '' :
+            ($display['type'] == 'field_ssid_regular' ? $item['ssid'] : $item['safe_value']),
+      );
+    }
+  }
+  return $element;
+}
+
+/**
+ * Implements hook_field_widget_info().
+ *
+ * @see field_ssid_field_widget_form()
+ */
+
+function field_ssid_field_widget_info() {
+  return array(
+    'field_ssid_text' => array(
+      'label' => t('An SSN value'),
+      'field types' => array('field_ssid_info'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_widget_form().
+ *
+ */
+function field_ssid_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
+  $value = isset($items[$delta]['ssid']) ? $items[$delta]['ssid'] : '';
+
+  $widget = $element;
+  $widget['#delta'] = $delta;
+
+  $widget += array(
+    '#type' => 'textfield',
+    '#default_value' => $value,
+    '#size' => 32,
+    '#maxlength' => 32,
+  );
+
+  $element['ssid'] = $widget;
+  return $element;
+}
+
+/**
+ * Implements hook_field_presave().
+ */
+function field_ssid_field_presave($entity_type, $entity, $field, $instance, $langcode, &$items) {
+  if (!field_ssid_get_cryptor()->isEnabled()) {
+    return;
+  }
+  if ($field['type'] == 'field_ssid_info') {
+    foreach ($items as $delta => $item) {
+      // Data should be set and not already encrypted - this may happens if field user class calls save() twice.
+      if (isset($item['ssid']) && preg_match("/\w\:\:\:\w/", $item['ssid']) === FALSE) {
+        $items[$delta]['ssid'] = field_ssid_get_cryptor()->encrypt($item['ssid']);
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_field_load().
+ */
+function field_ssid_field_load($entity_type, $entities, $field, $instances, $langcode, &$items, $age) {
+  foreach ($entities as $id => $entity) {
+    foreach ($items[$id] as $delta => $item) {
+      $decrypted = field_ssid_get_cryptor()->decrypt($item['ssid']);
+      $items[$id][$delta]['ssid'] = $decrypted;
+      $is_obscured = $instances[$id]['display']['default']['type'] == 'field_ssid_obscured';
+      $items[$id][$delta]['safe_value'] = $is_obscured ? preg_replace('/\d/', '*', drupal_substr($decrypted, 0, -4))
+        . drupal_substr($decrypted, -4) : $decrypted;
+    }
+  }
+}
+
+/**
+ * Implements hook_field_widget_error().
+ *
+ * @see form_error()
+ */
+function field_ssid_field_widget_error($element, $error, $form, &$form_state) {
+  switch ($error['error']) {
+    case 'field_ssid_invalid':
+      form_error($element, $error['message']);
+      break;
+  }
+}
+
+/**
+ * Get an instance of cryptor class.
+ *
+ * @return field_ssid_cryptor
+ */
+function field_ssid_get_cryptor() {
+  $cryptor = &drupal_static(__FUNCTION__, FALSE);
+  if (!$cryptor) {
+    $cryptor = new field_ssid_cryptor();
+    $cryptor->verify();
+  }
+  return $cryptor;
+}
+
