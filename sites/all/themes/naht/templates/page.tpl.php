@@ -90,7 +90,7 @@
                 <?php endif; ?>
           </div>
       </div>
-      <div class="col-md-8 clearfix">
+      <div class="col-md-8 clearfix px-md-4">
         <?php if (!empty($primary_nav) || !empty($secondary_nav) || !empty($page['navigation'])): ?>
           <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
             <span class="sr-only"><?php print t('Toggle navigation'); ?></span>

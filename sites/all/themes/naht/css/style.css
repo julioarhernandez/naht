@@ -196,6 +196,7 @@ button#edit-submit-hidden {
 @media (min-width: 768px){
     .logo_image{
         width: 100px;
+        margin-bottom: 1rem;
     }    
 }
 
@@ -301,7 +302,9 @@ button#edit-submit-hidden {
 /***************************************/
 /****** Paddings/ Spaces  **************/
 /***************************************/
-
+.pb-md-4,.px-md-4 {
+    padding-bottom: 1.5rem!important;
+}
 .pt-md-4,.py-md-4 {
     padding-top: 1.5rem!important;
 }
@@ -428,9 +431,12 @@ ul.navbar-nav .dropdown-menu a {
 .navbar-collapse ul.navbar-nav li.active > a{
     color: var(--secondary);
 }
-.navbar-collapse > nav > ul.navbar-nav{
-    padding: 1rem;
+@media (max-width: 767.9px){
+    .navbar-collapse > nav > ul.navbar-nav{
+        padding: 1rem;
+    }    
 }
+
 .navbar-collapse hr {
     margin-top: 15px;
     margin-bottom: 15px;
