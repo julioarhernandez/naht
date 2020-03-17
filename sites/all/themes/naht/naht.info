@@ -34,3 +34,5 @@ regions[primary_nav_block_2]    = 'Navigation block 2'
 stylesheets[all][] = css/extras.css
 stylesheets[all][] = css/style.css
 stylesheets[all][] = css/icomoon.css
+stylesheets[all][] = css/flaticon.css
+
