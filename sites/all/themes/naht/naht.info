@@ -8,6 +8,7 @@ base theme = bootstrap
 ;; Regions
 ;;;;;;;;;;;;;;;;;;;;;
 
+regions[top_page]       = 'Top header Bar'
 regions[navigation]     = 'Navigation'
 regions[header]         = 'Top Bar'
 regions[post_hero]      = 'Post Hero Full Width'

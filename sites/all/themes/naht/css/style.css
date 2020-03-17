@@ -101,7 +101,11 @@ body {
     border-bottom: none;
 }
 
-.last-day-banner { font-size: 24px; text-align:center;}
+.last-day-banner { 
+    font-size: 16px; 
+    text-align:center;
+    color: var(--primary);
+}
 
 body.front h1.page-header { display:none;}
 body.front .navbar {
@@ -623,6 +627,9 @@ ul.navbar-nav > li.open > a:focus{
     }
 }
 
+/*********************************/
+/***  block list icon region *****/
+/*********************************/
 
 .block-list-icon-image .img{
     background-size: cover;
@@ -659,3 +666,26 @@ ul.navbar-nav > li.open > a:focus{
     font-weight: 500;
     color: var(--black);
 }
+
+/*************************************/
+/*********  Top page styles *********/
+/************************************/
+
+.top-page{
+    background-color: var(--secondary);
+    border-radius: 4px;
+}
+.top-page .alert{
+    margin-bottom: 0;
+    border-bottom: 9px solid var(--primary-light);
+}
+.top-page .alert button.close{
+    opacity: 1;
+}
+
+
+
+
+
+
+

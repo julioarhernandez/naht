@@ -74,6 +74,10 @@
  */
 ?>
 <header id="navbar" role="banner" class="navbar">
+  <div class="top-page">
+      <?php print render($page['top_page']); ?>
+  </div>
+
   <div class="<?php print $container_class; ?>">
 
     <div class="navbar-header">
