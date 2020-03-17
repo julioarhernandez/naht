@@ -73,57 +73,96 @@
  * @ingroup templates
  */
 ?>
-<header id="navbar" role="banner" class="navbar navbar-inverse">
+<header id="navbar" role="banner" class="navbar">
   <div class="<?php print $container_class; ?>">
+
     <div class="navbar-header">
-      <?php if ($logo): ?>
-        <a class="logo navbar-btn pull-left" href="<?php print $front_page; ?>" title="<?php print t('Home'); ?>">
-          <img height="50" width="50" src="<?php print $logo; ?>" alt="<?php print t('Home'); ?>" />
-        </a>
-      <?php endif; ?>
-
-      <?php if (!empty($site_name)): ?>
-        <a class="name navbar-brand" href="<?php print $front_page; ?>" title="<?php print t('Home'); ?>"><?php print $site_name; ?></a>
-      <?php endif; ?>
-
-      <?php if (!empty($primary_nav) || !empty($secondary_nav) || !empty($page['navigation'])): ?>
-        <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
-          <span class="sr-only"><?php print t('Toggle navigation'); ?></span>
-          <span class="icon-bar"></span>
-          <span class="icon-bar"></span>
-          <span class="icon-bar"></span>
-        </button>
-      <?php endif; ?>
-    </div>
-
-    <?php if (!empty($primary_nav) || !empty($secondary_nav) || !empty($page['navigation'])): ?>
-      <div class="navbar-collapse collapse">
-        <nav role="navigation">
-          <?php if (!empty($primary_nav)): ?>
-            <?php print render($primary_nav); ?>
-          <?php endif; ?>
-          <?php if (!empty($secondary_nav)): ?>
-            <?php print render($secondary_nav); ?>
-          <?php endif; ?>
-          <?php if (!empty($page['navigation'])): ?>
-            <?php print render($page['navigation']); ?>
-          <?php endif; ?>
-        </nav>
+    <div class="row d-flex-sm-up flex-wrap flex-row">
+      <div class="col-md-4">
+          <div class="navbar-top-bar py-md-4">
+              <?php if ($logo): ?>
+                  <a class="logo navbar-btn pull-left" href="<?php print $front_page; ?>" title="<?php print t('Home'); ?>">
+                    <img class="logo_image" src="<?php print $logo; ?>" alt="<?php print t('Home'); ?>" />
+                  </a>
+                <?php endif; ?>
+                <?php if (!empty($site_name)): ?>
+                  <a class="name navbar-brand" href="<?php print $front_page; ?>" title="<?php print t('Home'); ?>"><?php print $site_name; ?></a>
+                <?php endif; ?>
+          </div>
       </div>
-    <?php endif; ?>
-  </div>
+      <div class="col-md-8 clearfix">
+        <?php if (!empty($primary_nav) || !empty($secondary_nav) || !empty($page['navigation'])): ?>
+          <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
+            <span class="sr-only"><?php print t('Toggle navigation'); ?></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </button>
+        <?php endif; ?>
+        <div class="d-flex hidden-xs h-100">
+          <div class="col-md d-flex topper align-items-center align-items-stretch py-md-4">
+            <div class="icon d-flex justify-content-center align-items-center">
+              <span class="icon-paper-plane"></span>
+            </div>
+            <div class="text">
+              <span>Email</span>
+              <span>youremail@email.com</span>
+            </div>
+            <?php print render($primary_nav_block_1); ?>
+          </div>
+          <div class="col-md d-flex topper align-items-center align-items-stretch py-md-4">
+            <div class="icon d-flex justify-content-center align-items-center"><span class="icon-phone2"></span></div>
+            <div class="text">
+              <span>Call</span>
+              <span>Call Us: + 1235 2355 98</span>
+            </div>
+            <?php print render($primary_nav_block_2); ?>
+          </div>
+          <div class="col-md topper d-flex align-items-center justify-content-end py-md-4">
+            <p class="mb-0">
+            <?php if (!empty($secondary_nav)): ?>
+                <?php print render($secondary_nav); ?>
+              <?php endif; ?>
+              
+            </p>
+          </div>
+        </div>
+      </div>      
+      <div class="col-sm-12 col-md-12">
+        <?php if (!empty($primary_nav) || !empty($secondary_nav) || !empty($page['navigation'])): ?>
+          <div class="navbar-collapse collapse">
+            <nav role="navigation">
+              <?php if (!empty($primary_nav)): ?>
+                <?php print render($primary_nav); ?>
+              <?php endif; ?>
+              <?php if (!empty($page['navigation'])): ?>
+                <?php print render($page['navigation']); ?>
+              <?php endif; ?>
+              <div class="navbar-secondary-mobile hidden-sm-up">
+                <hr />
+                <?php if (!empty($secondary_nav)): ?>
+                  <?php print render($secondary_nav); ?>
+                <?php endif; ?>
+              </div>
+            </nav>
+          </div>
+        <?php endif; ?>
+      </div>
+      </div>
+    </div>
+    </div>
+    
 </header>
-
-<div class="main-container <?php print $container_class; ?>">
-
-  <header role="banner" id="page-header">
+<main class="main">
+  <div role="banner" id="page-header">
     <?php if (!empty($site_slogan)): ?>
       <p class="lead"><?php print $site_slogan; ?></p>
     <?php endif; ?>
 
     <?php print render($page['header']); ?>
-  </header> <!-- /#page-header -->
-
+  </div> <!-- /#page-header -->
+  <?php print render($page['post_hero']); ?>
+<div class="main-container <?php print $container_class; ?>">
   <div class="row">
 
     <?php if (!empty($page['sidebar_first'])): ?>
@@ -187,7 +226,7 @@
   </div>
 </div>
 
-
+</main>
   <footer class="footer" id="footer">
   
     <div class="container">

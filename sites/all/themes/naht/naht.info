@@ -1,5 +1,5 @@
 name = National Association of Healthcare Technicians
-description = NAHT is a bootstrap theme developed by KNI Design
+description = NAHT is a bootstrap theme developed by KNI Design enhanced by Bizmarketing.us
 core = 7.x
 base theme = bootstrap
 
@@ -10,6 +10,7 @@ base theme = bootstrap
 
 regions[navigation]     = 'Navigation'
 regions[header]         = 'Top Bar'
+regions[post_hero]      = 'Post Hero Full Width'
 regions[highlighted]    = 'Highlighted'
 regions[help]           = 'Help'
 regions[content]        = 'Content'
@@ -21,6 +22,8 @@ regions[pre_footer]     = 'preFooter'
 regions[footer]         = 'Footer'
 regions[page_top]       = 'Page top'
 regions[page_bottom]    = 'Page bottom'
+regions[primary_nav_block_1]    = 'Navigation block 1'
+regions[primary_nav_block_2]    = 'Navigation block 2'
 
 
 
@@ -30,3 +33,4 @@ regions[page_bottom]    = 'Page bottom'
 
 stylesheets[all][] = css/extras.css
 stylesheets[all][] = css/style.css
+stylesheets[all][] = css/icomoon.css
