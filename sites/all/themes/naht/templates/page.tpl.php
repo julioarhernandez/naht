@@ -209,6 +209,20 @@
   </div>
 </div>
 
+<?php if (!empty($page['contact_form'])): ?>
+<div id="contact-form" class="section-margin" style="background-image: url(./sites/all/themes/naht/images/nurse-bg.jpg)" >
+  <div class="primary-gradient-overlay-dark"></div>
+  <div class="container">
+    <div class="row">
+      <div class="col-md-6">
+      </div>
+      <div class="col-md-6">
+        <?php print render($page['contact_form']); ?>
+      </div>
+    </div>
+  </div>
+</div>
+<?php endif; ?>
 
 <?php if (!empty($page['post_script'])): ?>
 <div id="post-script">
@@ -244,7 +258,7 @@
       <div class="container pt30">
         
        <div class="totop pull-right"><a href="#top">&nbsp;↑<br><small>TOP</small></a></div>
-       <div class="small">&copy; Copyright 2015 mynaht.com | National Association of Healthcare Technicians | <a href="/terms-and-conditions">Terms and Conditions</a> | <a href="/privacy-policy">Privacy Policy </a> <span class="designCredit"> | Developed by KNI Design</span>
+       <div class="small">&copy; Copyright 2020 mynaht.com | National Association of Healthcare Technicians | <a href="/terms-and-conditions">Terms and Conditions</a> | <a href="/privacy-policy">Privacy Policy </a> <span class="designCredit"> | Developed by Bizmarketing.us</span>
        </div>
        
      </div>
