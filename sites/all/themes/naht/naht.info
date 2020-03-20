@@ -38,3 +38,8 @@ stylesheets[all][] = css/style.css
 stylesheets[all][] = css/icomoon.css
 stylesheets[all][] = css/flaticon.css
 
+;;;;;;;;;;;;;;;;;;;;;
+;; Javascript
+;;;;;;;;;;;;;;;;;;;;;
+scripts[] = js/stellar.js
+scripts[] = js/parallax.js

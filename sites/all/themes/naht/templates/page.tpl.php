@@ -210,7 +210,7 @@
 </div>
 
 <?php if (!empty($page['contact_form'])): ?>
-<div id="contact-form" class="section-margin" style="background-image: url(./sites/all/themes/naht/images/nurse-bg.jpg)" >
+<div id="contact-form" class="section-margin-small" data-stellar-background-ratio="0.7" style="background-image: url(./sites/all/themes/naht/images/nurse-bg.jpg)">
   <div class="primary-gradient-overlay-dark"></div>
   <div class="container">
     <div class="row">

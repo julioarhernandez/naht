@@ -407,6 +407,10 @@ p {
     padding-bottom: 110px!important;
     padding-top: 110px!important;
 }
+.section-margin-small{
+    padding-bottom: 70px!important;
+    padding-top: 70px!important;
+}
 section, article, div{
     position: relative;
 }
@@ -802,10 +806,20 @@ ul.navbar-nav > li.open > a:focus{
 /*************** Contact form ***********************/
 /****************************************************/
 
+@media (min-width: 768px){
+    #contact-form {
+        background-attachment: fixed;
+    }
+}
+@media (max-width: 768px){
+    #contact-form {
+        background-position: center!important;
+        background-size: cover;
+    }
+}
 #contact-form {
     background-repeat: no-repeat;
     background-size: cover;
-    background-position: center;
     color: var(--clean-text);
   }
   #contact-form .field-name-body{
@@ -816,6 +830,11 @@ ul.navbar-nav > li.open > a:focus{
   #contact-form h3 > a{
       color: var(--clean-text);
       pointer-events: none;
+  }
+  #contact-form h1,
+  #contact-form h2,
+  #contact-form h3{
+      margin-top: 0;
   }
   #contact-form form > div {
     display: flex;
