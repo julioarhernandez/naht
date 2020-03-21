@@ -37,9 +37,13 @@ stylesheets[all][] = css/extras.css
 stylesheets[all][] = css/style.css
 stylesheets[all][] = css/icomoon.css
 stylesheets[all][] = css/flaticon.css
+stylesheets[all][] = js/owlc/assets/owl.carousel.min.css
+stylesheets[all][] = js/owlc/assets/owl.theme.default.min.css
 
 ;;;;;;;;;;;;;;;;;;;;;
 ;; Javascript
 ;;;;;;;;;;;;;;;;;;;;;
 scripts[] = js/stellar.js
+scripts[] = js/owlc/owl.carousel.min.js
 scripts[] = js/parallax.js
+scripts[] = js/carousel.js

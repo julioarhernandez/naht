@@ -21,6 +21,7 @@ black transparent: rgba(0,0,0,.5)
   --black-light: #666666;
   --gradient-start: #0d1128;
   --gradient-end: rgba(var(--primary-light-rgb), 0.1);
+  --bg-light-primary: rgba(var(--primary-light-rgb), 0.05);
   --gradient-end-dark: rgba(var(--primary-light-rgb), 0.6);
   --black-dark: var(--gradient-start);
   --clean-text: white;
@@ -51,6 +52,18 @@ body {
     filter: progid:DXImageTransform.Microsoft.gradient( startColorstr=var(--gradient-start), endColorstr=var(--gradient-end), GradientType=1 );
     opacity: .9; 
 }
+@media (min-width: 1200px){
+    .primary-gradient-overlay{
+        background: -moz-linear-gradient(var(--gradient-degree), var(--gradient-start) 20%, var(--gradient-end) 90%);
+        background: -webkit-gradient(left bottom, right top, color-stop(0%, var(--gradient-start)), color-stop(90%, var(--gradient-end)));
+        background: -webkit-linear-gradient(var(--gradient-degree), var(--gradient-start) 20%, var(--gradient-end) 90%);
+        background: -o-linear-gradient(var(--gradient-degree), var(--gradient-start) 20%, var(--gradient-end) 90%);
+        background: -ms-linear-gradient(var(--gradient-degree), var(--gradient-start) 20%, var(--gradient-end) 90%);
+        background: linear-gradient(var(--gradient-degree), var(--gradient-start) 20%, var(--gradient-end) 90%);
+        filter: progid:DXImageTransform.Microsoft.gradient( startColorstr=var(--gradient-start), endColorstr=var(--gradient-end), GradientType=1 );
+        opacity: .9; 
+    }   
+}
 .primary-gradient-overlay-dark{
     position: absolute;
     top: 0;
@@ -67,7 +80,7 @@ body {
     opacity: .9; 
 }
 
-#pre-footer { background-color:#a0b3d9; margin-top:45px;}
+#pre-footer { background-color:#a0b3d9;}
 #pre-footer h2 {font-size:24px;}
 #footer { background-color:#111a26; color:rgba(255,255,255,.7); margin-top:0; border-top:0;}
 #footer h2 {color:#FFFFFF; font-size:24px;}
@@ -247,6 +260,9 @@ button#edit-submit-hidden {
     font-size: 44px;
     font-weight: 600;
 }
+.bg-light{
+    background-color: var(--bg-light-primary);
+}
 
 
 /**********************************/
@@ -254,9 +270,9 @@ button#edit-submit-hidden {
 /**********************************/
 
 .d-flex {
-    display: -webkit-box;
-    display: -ms-flexbox;
-    display: flex;
+    display: -webkit-box!important;
+    display: -ms-flexbox!important;
+    display: flex!important;
     
 }
 @media (min-width: 767.9px){
@@ -340,6 +356,9 @@ button#edit-submit-hidden {
 .mt-5,.my-5 {
     margin-top:50px!important
 }
+.pt-5,.py-5 {
+    padding-top:50px!important
+}
 @media (min-width: 768px){
     .hidden-sm-up{
         display: none;
@@ -363,6 +382,9 @@ button#edit-submit-hidden {
 .mr-2, .mx-2 {
     margin-right: .5rem!important;
 }
+.mr-4, .mx-4 {
+    margin-right: 3rem!important;
+}
 p {
     margin-top: 0;
     margin-bottom: 16px;
@@ -384,6 +406,9 @@ p {
 }
 .mb-7, .my-7 {
     margin-bottom: 6rem!important;
+}
+.pb-7, .py-7 {
+    padding-bottom: 6rem!important;
 }
 .pl-4, .px-4 {
     padding-left: 1.5rem!important;
@@ -874,6 +899,78 @@ ul.navbar-nav > li.open > a:focus{
     align-items: flex-end;
     margin-bottom: 16px;
   }
+
+  /****************************************************/
+/*************** Contact form ***********************/
+/****************************************************/
+.testimony-wrap {
+    display: block;
+    position: relative;
+    background: rgba(255,255,255,.1);
+    color: rgba(0,0,0,.8);
+}
+.testimony-section .owl-carousel .owl-stage-outer {
+    padding-top: 4em;
+    padding-bottom: 2em;
+    position: relative;
+}
+.testimony-wrap .name {
+    font-weight: 400;
+    font-size: 18px;
+    margin-bottom: 0;
+    color: var(--primary);
+}
+.testimony-wrap .quote i {
+    font-size: 100px;
+    color: #5d50c6;
+}
+.testimony-section .owl-item.center {
+    padding-bottom: 30px;
+    margin-top: 0;
+    opacity: 1!important;
+}
+.testimony-section .owl-item {
+    opacity: .1!important;
+    margin-top: 20px;
+}
+.testimony-wrap .position {
+    font-size: 14px;
+    color: var(--secondary);
+}
+.testimony-wrap .quote {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    opacity: .1;
+}
+.testimony-section .owl-dots .owl-dot {
+    width: 10px;
+    height: 10px;
+    margin: 5px;
+    border-radius: 50%;
+    background: rgba(0,0,0,.2);
+}
+.testimony-section .owl-dots .owl-dot.active {
+    background: var(--secondary);
+}
+.testimony-section .owl-dots {
+    text-align: center;
+}
+  .testimony-wrap .user-img {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    position: relative;
+}
+.testimony-wrap .text {
+    width: calc(100% - 120px);
+    position: relative;
+}
+.user-img {
+    background-size: cover;
+    background-repeat: no-repeat;
+    background-position: center center;
+}
   
 
 
