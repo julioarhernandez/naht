@@ -83,8 +83,6 @@
 <article id="node-<?php print $node->nid; ?>" class="<?php print $classes; ?> clearfix"<?php print $attributes; ?>>
   <?php if ((!$page && !empty($title)) || !empty($title_prefix) || !empty($title_suffix) || $display_submitted): ?>
   <header class="node-header">
-    
-    <?php print render($content['field_header_image']); ?>
     <?php if (!$page && !empty($title)): ?>
     <h2<?php print $title_attributes; ?>><a href="<?php print $node_url; ?>"><?php print $title; ?></a></h2>
     <?php endif; ?>
@@ -100,6 +98,7 @@
   <?php
     // Hide comments, tags, and links now so that we can render them later.
     hide($content['comments']);
+    hide($content['field_header_image']);
     hide($content['links']);
     hide($content['field_tags']);
     print render($content);

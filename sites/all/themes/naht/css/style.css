@@ -95,6 +95,9 @@ body {
     margin-right: 0;
 }
 
+.overflow-hidden {
+    overflow: hidden !important; }
+    
 .container marketing { align-content:center; text-align:center;}
 .mt30 { margin-top: 30px;}
 
@@ -970,6 +973,40 @@ ul.navbar-nav > li.open > a:focus{
     background-size: cover;
     background-repeat: no-repeat;
     background-position: center center;
+}
+
+/**************************/
+/** Main hero for nodes ***/
+/**************************/
+.main-hero-figure{
+    position: absolute;
+    top: 0;
+    left:0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+.main-hero-figure > img{
+    object-fit: cover;
+    position: absolute;
+    width: 100%;
+}
+.main-hero-content {
+    min-height: 300px;
+    padding: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.main-hero-content .page-header{
+    color: var(--clean-text);
+    font-weight: 900;
+    text-align: center;
+    border: none;
+    margin: 0;
+}
+.node-type-page .navbar{
+    margin-bottom: 0;
 }
   
 
