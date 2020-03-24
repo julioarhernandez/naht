@@ -1,0 +1,332 @@
+<?php
+
+/**
+ * Implements hook_field_formatter_info().
+ */
+function stellarjs_field_formatter_field_formatter_info() {
+  $formatters = array(
+    'stellarjs_field_formatter' => array(
+      'label' => t('StellarJS Image'),
+      'field types' => array('image', 'imagefield_crop'),
+      'settings' => array(
+        'stellarjs' => array(
+          'target' => 'node',
+          'image_style' => 'default',
+          'stellar_background_ratio' => 0.5,
+          'stellar_ratio' => NULL,
+          'stellar_horizontal_offset' => NULL,
+          'stellar_vertical_offset' => NULL,
+          'stellar_offset_parent' => 0,
+          'css_background_size' => 'cover',
+          'css_background_repeat' => 'no-repeat',
+          'css_background_attachment' => 'fixed',
+        )
+      ),
+    ),
+  );
+
+  return $formatters;
+}
+
+/**
+ * Implements hook_field_formatter_settings_form().
+ */
+function stellarjs_field_formatter_field_formatter_settings_form($field, $instance, $view_mode, $form, &$form_state) {
+  $display = $instance['display'][$view_mode];
+  $settings = $display['settings'];
+  $element = array();
+
+  $element['stellarjs'] = array(
+    '#type' => 'container',
+    '#collapsible' => FALSE,
+    '#collapsed' => FALSE,
+  );
+  $element['stellarjs']['target'] = array(
+    '#type' => 'select',
+    '#title' => t('Target tag'),
+    '#description' => t('Select where data attributes should be added. Note that <code>entity</code> and <code>node</code> may target the same element.'),
+    '#default_value' => $settings['stellarjs']['target'],
+    '#options' => array(
+      'node' => t('Node'),
+      'field' => t('Field'),
+      'field_group' => t('Fieldgroup'),
+      'entity' => t('Entity'),
+      'field_collection_view' => t('Field collection item'),
+      'fieldable_panels_pane' => t('Fieldable panel pane'),
+      'block' => t('Block'),
+      'region' => t('Region'),
+      'body' => t('Page'), // should be 'html'
+    ),
+  );
+  $image_options = array('default' => t('- None -')) + image_style_options(FALSE);
+  $element['stellarjs']['image_style'] = array(
+    '#type' => 'select',
+    '#title' => t('Image style'),
+    '#description' => t('Use an image style to change the dimensions of the image.'),
+    '#default_value' => $settings['stellarjs']['image_style'],
+    '#options' => $image_options,
+  );
+  $element['stellarjs']['stellar_background_ratio'] = array(
+    '#type' => 'textfield',
+    '#element_validate' => array('element_validate_number'),
+    '#title' => t('Background scroll ratio'),
+    '#description' => t('Controls how fast the background image scrolls. Natural scroll speed is 1.0. For example, 0.5 is half speed, 2 is double speed. Default: 0.5'),
+    '#default_value' => $settings['stellarjs']['stellar_background_ratio'],
+  );
+  $element['stellarjs']['advanced'] = array(
+    '#title' => t('Advanced'),
+    '#type' => 'fieldset',
+    '#collapsible' => TRUE,
+    '#collapsed' => TRUE,
+  );
+  $element['stellarjs']['advanced']['stellar_ratio'] = array(
+    '#type' => 'textfield',
+    '#element_validate' => array('element_validate_number'),
+    '#title' => t('Scroll ratio'),
+    '#description' => t('Controls how fast the entire block scrolls down the screen. Natural scroll speed is 1.0. For example, 0.5 is half speed, 2 is double speed.'),
+    '#default_value' => $settings['stellarjs']['advanced']['stellar_ratio'],
+  );
+  $element['stellarjs']['advanced']['stellar_horizontal_offset'] = array(
+    '#type' => 'textfield',
+    '#element_validate' => array('element_validate_number'),
+    '#title' => t('Horizontal offset'),
+    '#description' => t('Fix initial horizontal image position. Ex: 40'),
+    '#default_value' => $settings['stellarjs']['advanced']['stellar_horizontal_offset'],
+  );
+  $element['stellarjs']['advanced']['stellar_vertical_offset'] = array(
+    '#type' => 'textfield',
+    '#element_validate' => array('element_validate_number'),
+    '#title' => t('Vertical Offset.'),
+    '#description' => t('Fix initial vertical image position. Ex: 150'),
+    '#default_value' => $settings['stellarjs']['advanced']['stellar_vertical_offset'],
+  );
+  $element['stellarjs']['advanced']['stellar_offset_parent'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Offset parent'),
+    '#description' => t('By default, offsets are relative to the element\'s offset parent.'),
+    '#default_value' => $settings['stellarjs']['advanced']['stellar_vertical_offset'],
+  );
+  $element['stellarjs']['advanced']['css_background_size'] = array(
+    '#type' => 'select',
+    '#title' => t('Background size'),
+    '#default_value' => $settings['stellarjs']['advanced']['css_background_size'],
+    '#options' => array(
+      'none' => t('None'),
+      'cover' => t('Cover'),
+      'contain' => t('Contain'),
+      'cover' => t('Cover'),
+    ),
+  );
+  $element['stellarjs']['advanced']['css_background_repeat'] = array(
+    '#type' => 'select',
+    '#title' => t('Background repeat'),
+    '#default_value' => $settings['stellarjs']['advanced']['css_background_repeat'],
+    '#options' => array(
+      'none' => t('None'),
+      'no-repeat' => t('no-repeat'),
+      'repeat' => t('repeat'),
+    ),
+  );
+  $element['stellarjs']['advanced']['css_background_attachment'] = array(
+    '#type' => 'select',
+    '#title' => t('Background attachment'),
+    '#default_value' => $settings['stellarjs']['advanced']['css_background_attachment'],
+    '#options' => array(
+      'none' => t('None'),
+      'fixed' => t('Fixed'),
+      'scroll' => t('Scroll'),
+      'local' => t('Local'),
+    ),
+  );
+
+  return $element;
+}
+
+/**
+ * Implements hook_field_formatter_settings_summary().
+ */
+function stellarjs_field_formatter_field_formatter_settings_summary($field, $instance, $view_mode) {
+  $display = $instance['display'][$view_mode];
+  $settings = $display['settings'];
+
+  $attr = (isset($settings['stellarjs'])) ? $settings['stellarjs'] : array();
+  $attr = (isset($settings['stellarjs']['advanced'])) ? $attr + $settings['stellarjs']['advanced'] : $attr;
+  if ($attr['advanced']) {
+    unset($attr['advanced']);
+  }
+
+  $summary = array(
+    'items' => array(),
+    'title' => t('StellarJS Summary'),
+    'type' => 'ul',
+    'attributes' => array(),
+  );
+
+  // Set target.
+  if (isset($attr['target'])) {
+    $summary['items'][] = t('Target: ') . $attr['target'];
+    unset($attr['target']);
+  } else {
+    $summary['items'][] = t('Target: node');
+  }
+
+  $image_styles = image_style_options(FALSE);
+  // Unset possible 'No defined styles' option.
+  unset($image_styles['']);
+  // Styles could be lost because of enabled/disabled modules that defines
+  // their styles in code.
+  if (isset($image_styles[$attr['image_style']])) {
+    $summary['items'][] = t('Image style: @style', array('@style' => $image_styles[$attr['image_style']]));
+    unset($attr['image_style']);
+  }
+  else {
+    $summary['items'][] = t('No image style.');
+  }
+
+  // Loop through remaining attributes. net
+  foreach ($attr as $key => $value) {
+    if (strpos($key, 'stellar_') !== FALSE && !empty($value)) {
+      $label = ucfirst(str_replace('_', ' ', substr($key, 8)));
+      $summary['items'][] = t($label) . ': ' . $value;
+    }
+    if (strpos($key, 'css_') !== FALSE && !empty($value) && $value !== 'none') {
+      $label = ucfirst(str_replace('_', ' ', substr($key, 4)));
+      $summary['items'][] = t('(CSS) ' . $label) . ': ' . $value;
+    }
+  }
+
+  return theme_item_list($summary);
+
+  // return implode('<br />', $summary);
+}
+
+/**
+ * Implements hook_field_formatter_view().
+ *
+ * Build a renderable array for a field value.
+ */
+function stellarjs_field_formatter_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display) {
+
+  $settings = $display['settings'];
+
+  // Extract Stellar settings.
+  $attr = (isset($settings['stellarjs'])) ? $settings['stellarjs'] : array();
+  $attr = (isset($settings['stellarjs']['advanced'])) ? $attr + $settings['stellarjs']['advanced'] : $attr;
+  if ($attr['advanced']) {
+    unset($attr['advanced']);
+  }
+
+  // Initialize.
+  $element = array();
+  $attributes_array = array();
+  $style = array();
+
+  // Extract target.
+  if (!empty($attr['target'])) {
+    $element['#target'] = $attr['target'];
+    unset($attr['target']);
+  }
+
+  // Get image.
+  if (!empty($items) && isset($items[0]['uri'])) {
+    $path = $items[0]['uri'];
+    // Get image url;
+    if (!empty($attr['image_style']) && $attr['image_style'] !== 'default') {
+      $style[] = 'background-image:url(' . image_style_url($attr['image_style'], $path) . ')';
+      unset($attr['image_style']);
+    } else {
+      $style[] = 'background-image:url(' . file_create_url($path) . ')';
+    }
+  }
+
+  // Loop through remaining attributes.
+  foreach ($attr as $key => $value) {
+    if (strpos($key, 'stellar_') !== FALSE && !empty($value)) {
+      $attributes_array['data-' . drupal_html_class($key)] = $value;
+    }
+    if (strpos($key, 'css_') !== FALSE && !empty($value) && $value !== 'none') {
+      $style[] = substr(drupal_html_class($key), 4) . ':' . $value;
+    }
+  }
+
+  // Finalize styles.
+  $attributes_array['style'] = (!empty($style)) ? implode(';', $style) . ';' : '';
+  $element['#attributes_array'] = $attributes_array;
+
+  return $element;
+}
+
+/**
+ * Implements hook_preprocess_HOOK().
+ */
+function stellarjs_field_formatter_preprocess_html(&$variables) {
+  _stellarjs_field_formatter_extract_attributes('body', $variables['page'], $variables['attributes_array']);
+}
+function stellarjs_field_formatter_preprocess_region(&$variables, $hook) {
+  _stellarjs_field_formatter_extract_attributes($hook, $variables['elements'], $variables['attributes_array']);
+}
+function stellarjs_field_formatter_preprocess_block(&$variables, $hook) {
+  _stellarjs_field_formatter_extract_attributes($hook, $variables['elements'], $variables['attributes_array']);
+}
+function stellarjs_field_formatter_preprocess_node(&$variables, $hook) {
+  _stellarjs_field_formatter_extract_attributes($hook, $variables['elements'], $variables['attributes_array']);
+}
+function stellarjs_field_formatter_preprocess_entity(&$variables, $hook) {
+  _stellarjs_field_formatter_extract_attributes($hook, $variables['elements'], $variables['attributes_array']);
+}
+function stellarjs_field_formatter_preprocess_bean(&$variables, $hook) {
+  _stellarjs_field_formatter_extract_attributes($hook, $variables['elements'], $variables['attributes_array']);
+}
+function stellarjs_field_formatter_preprocess_field(&$variables, $hook) {
+  _stellarjs_field_formatter_extract_attributes($hook, $variables['element'], $variables['attributes_array']);
+}
+function stellarjs_field_formatter_preprocess_field_collection_view(&$variables, $hook) {
+  _stellarjs_field_formatter_extract_attributes($hook, $variables['element'], $variables['element']['#attributes']);
+}
+function stellarjs_field_formatter_preprocess_fieldable_panels_pane(&$variables, $hook) {
+  _stellarjs_field_formatter_extract_attributes($hook, $variables['elements'], $variables['attributes_array']);
+}
+
+/**
+ * Implements hook_field_group_pre_render().
+ */
+function stellarjs_field_formatter_field_group_pre_render(&$element, $group, &$form) {
+  $attributes_array = $group->format_settings['instance_settings']['attributes'];
+  _stellarjs_field_formatter_extract_attributes('field_group', $element, $attributes_array);
+  $group->format_settings['instance_settings']['attributes'] += $attributes_array;
+}
+
+/**
+ * Recurse a renderable array for attributes info.
+ */
+function _stellarjs_field_formatter_extract_attributes($filter, &$items, &$attributes_array, $depth=0) {
+  if (is_array($items)) {
+
+    // every field_collection and entityreference increases the depth level
+    if (array_key_exists('#field_type', $items) &&
+        $items['#field_type'] == 'field_collection' &&
+        ($filter == 'field' || $filter == 'entity' || $filter == 'field_collection_view')) {
+      $depth += 1;
+    }
+    if (array_key_exists('#field_type', $items) &&
+        $items['#field_type'] == 'entityreference' &&
+        ($filter == 'field' || $filter == 'node')) {
+      $depth += 1;
+    }
+
+    // apply attributes if available
+    if (array_key_exists('#attributes_array', $items) && $items['#target'] == $filter) {
+      if (!empty($attributes_array)) {
+        $attributes_array += $items['#attributes_array'];
+      } else {
+        $attributes_array = $items['#attributes_array'];
+      }
+    }
+
+    // recurse
+    foreach (element_children($items) as $delta) {
+      _stellarjs_field_formatter_extract_attributes($filter, $items[$delta], $attributes_array, $depth);
+    }
+
+  }
+}

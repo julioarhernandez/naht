@@ -1,0 +1,13 @@
+name = StellarJS Field Formatter
+description = Provides an image formatter to display parallax images in background.
+core = 7.x
+package = StellarJS
+
+dependencies[] = stellarjs
+
+; Information added by Drupal.org packaging script on 2016-06-03
+version = "7.x-1.0-alpha2"
+core = "7.x"
+project = "stellarjs"
+datestamp = "1464963840"
+
