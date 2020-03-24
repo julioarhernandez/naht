@@ -26,6 +26,7 @@ black transparent: rgba(0,0,0,.5)
   --black-dark: var(--gradient-start);
   --clean-text: white;
   --clean-text-light: rgba(255,255,255, 0.8);
+  --clean-text-lightest: rgba(255,255,255, 0.2);
   --gradient-degree: 70deg;
 
 }
@@ -830,45 +831,48 @@ ul.navbar-nav > li.open > a:focus{
     color: var(--clean-text-light)
 }
 
-/****************************************************/
-/*************** Contact form ***********************/
-/****************************************************/
+/******************************************************************/
+/*************** Contact form webform block ***********************/
+/******************************************************************/
 
 @media (min-width: 768px){
-    #contact-form {
+    .block-contact-form {
         background-attachment: fixed;
     }
 }
 @media (max-width: 768px){
-    #contact-form {
+    .block-contact-form {
         background-position: center!important;
         background-size: cover;
     }
 }
-#contact-form {
+.block-contact-form.invert{
+    --clean-text: #666;
+}
+.block-contact-form {
     background-repeat: no-repeat;
     background-size: cover;
     color: var(--clean-text);
   }
-  #contact-form .field-name-body{
+  .block-contact-form .field-name-body{
       padding-bottom: 50px;
   }
-  #contact-form h1 > a,
-  #contact-form h2 > a,
-  #contact-form h3 > a{
+  .block-contact-form h1 > a,
+  .block-contact-form h2 > a,
+  .block-contact-form h3 > a{
       color: var(--clean-text);
       pointer-events: none;
   }
-  #contact-form h1,
-  #contact-form h2,
-  #contact-form h3{
+  .block-contact-form h1,
+  .block-contact-form h2,
+  .block-contact-form h3{
       margin-top: 0;
   }
-  #contact-form form > div {
+  .block-contact-form form > div {
     display: flex;
     flex-wrap: wrap;
   }
-  #contact-form form > div .form-group label{
+  .block-contact-form form > div .form-group label{
      display: inline-block;
     max-width: 100%;
     margin-bottom: 0;
@@ -876,28 +880,32 @@ ul.navbar-nav > li.open > a:focus{
     opacity: 0.6;
     padding-bottom: 0;
   }
-  #contact-form form > div .grippie{
+  .block-contact-form form > div .grippie{
       display: none;
   }
-  #contact-form form > div input.form-control,
-  #contact-form form > div textarea.form-control{
+  .block-contact-form.invert form > div input.form-control,
+  .block-contact-form.invert form > div textarea.form-control{
+    --clean-text-lightest: #666;
+  }
+  .block-contact-form form > div input.form-control,
+  .block-contact-form form > div textarea.form-control{
     border: transparent!important;
-    border-bottom: 1px solid rgba(255,255,255,.2)!important;
+    border-bottom: 1px solid var(--clean-text-lightest) !important;
     height: 58px!important;
     padding-left: 0;
     padding-right: 0;
     background: 0 0!important;
-    color: rgba(255,255,255,.9)!important;
+    color: var(--clean-text)!important;
     font-size: 16px;
     border-radius: 0;
     -webkit-box-shadow: none!important;
     box-shadow: none!important;
   }
-  #contact-form form > div .form-group:not(:nth-last-child(1)) {
+  .block-contact-form form > div .form-group:not(:nth-last-child(1)) {
     width: 50%;
     padding-right: 15px;
   }
-  #contact-form form > div .form-group:last-child {
+  .block-contact-form form > div .form-group:last-child {
     display: flex;
     align-items: flex-end;
     margin-bottom: 16px;
@@ -1008,7 +1016,6 @@ ul.navbar-nav > li.open > a:focus{
 .node-type-page .navbar{
     margin-bottom: 0;
 }
-  
 
 
 

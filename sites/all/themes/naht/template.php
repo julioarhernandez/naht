@@ -15,4 +15,11 @@ function naht_preprocess_page(&$variables) {
 	 // name will be "page--my-machine-name.tpl.php".
 	 $variables['theme_hook_suggestions'][] = 'page__' . $variables['node']->type;
 	}
-  } 
+  }
+  
+  function naht_preprocess_node(&$variables) {
+	$node = $variables['node'];
+	if ($node->nid == 5 && node_is_page($node)){
+		$variables['theme_hook_suggestions'][] = 'node__5_form';
+	}
+  }
