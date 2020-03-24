@@ -1,0 +1,2087 @@
+<?php
+
+/**
+ * @file
+ * Adds capability to insert a block within the content of another block.
+ *
+ * Below is a rough sketch of how the module accomplishes this, followed by
+ * a list of key functions in order of execution.
+ *
+ * Identification of blocks to insert:
+ * During a page load, block_in_block_block_list_alter() identifies blocks that
+ * are configured to be inserted into other blocks. When one is found, it unsets
+ * it from the $blocks array, and stores it and its insertion settings within a
+ * static "blocks_to_insert" array.
+ *
+ * The blocks_to_insert array:
+ * The blocks_to_insert array is structured so that each of its keys is a
+ * specific detail about how the blocks should be inserted. For example, the key
+ * for its first dimension is the "block key" (MODULE_DELTA) for the "target
+ * block" being inserted into (blocks_to_insert[MODULE_DELTA]). So, blocks that
+ * are being inserted into the same target block will be grouped together.
+ * Blocks that have identical insertion settings will have identical keys, and
+ * belong to the same "insertion group". Blocks that belong to the same
+ * insertion group can have their content inserted all at once.
+ *
+ * Identification of target blocks:
+ * The insertion into target blocks begins at block_in_block_preprocess_node
+ * or block_in_block_preprocess_block, depending on whether the target block is
+ * the "Main page content" or another block type, respectively. If the block
+ * key for the block being preprocessed matches one of the keys in the
+ * blocks_to_insert array, then it is a target block.
+ *
+ * Insertion and replacement of placeholders:
+ * Along with the blocks to be inserted, each insertion group within the
+ * blocks_to_insert array has a unique "placeholder" string that is used as part
+ * of the insertion process. When all of the placeholders for all of the
+ * insertion groups for a target block have been inserted, they are replaced
+ * with the rendered content of the blocks belonging to that insertion group.
+ *
+ * Why placeholders are used:
+ * The placeholders are used so that content that is inserted from one block
+ * doesn't interfere with the insertion of other blocks. For example, a
+ * block is configured to be inserted after the third paragraph, and another
+ * block with paragraph tags is configured to be inserted after the first
+ * paragraph. I am assuming that most users expect the "third paragraph" to
+ * always refer to the third paragraph of the original content. Using the
+ * placeholders is an attempt to make sure that blocks are always inserted in
+ * relation to the original content.
+ *
+ * Key functions in order of execution:
+ * @see block_in_block_block_list_alter()
+ *   Identification of blocks to insert.
+ * @see _block_in_block_store_block_to_insert()
+ *   Processes a block's insertion settings to determine its insertion group.
+ * @see _block_in_block_add_block_to_insertion_group()
+ *   Where the block is added to the insertion group within the blocks_to_insert
+ *   array. Also where the placeholder for the insertion group is generated and
+ *   associated with its corresponding block(s).
+ * @see block_in_block_preprocess_node()
+ *  Identifies if the "Main page content" block is a target block. If it is,
+ *  calls _block_in_block_get_content_with_insertions().
+ * @see block_in_block_preprocess_block()
+ *  Identification of target blocks for block types other than the Main page
+ *  content block. Also calls _block_in_block_get_content_with_insertions().
+ * @see _block_in_block_get_content_with_insertions()
+ *   Calls the next two functions to insert the placeholders and replace them
+ *   with the contents of the blocks being inserted.
+ * @see _block_in_block_get_content_with_placeholders()
+ *   Initiates processing of insertion groups to insert placeholders.
+ * @see _block_in_block_replace_all_placeholders()
+ *  Placeholders replaced with the rendered content of blocks.
+ */
+
+/**
+ * Block key for the Main page content block.
+ *
+ * @see block_in_block_get_block_key()
+ *   For more information about block keys.
+ */
+define('BLOCK_IN_BLOCK_MAIN_PAGE_CONTENT_KEY', 'system_main');
+
+/**
+ * The block should be inserted after the target substring.
+ */
+define('BLOCK_IN_BLOCK_AFTER_TARGET', 'after');
+
+/**
+ * The block should be inserted before the target substring.
+ */
+define('BLOCK_IN_BLOCK_BEFORE_TARGET', 'before');
+
+/**
+ * The block should replace the target substring.
+ */
+define('BLOCK_IN_BLOCK_REPLACE_TARGET', 'replace');
+
+/**
+ * Implements hook_block_list_alter().
+ *
+ * Note: blocks configured to be inserted into another block are unset from
+ * the $blocks array.
+ */
+function block_in_block_block_list_alter(&$blocks) {
+  foreach ($blocks as $key => $block) {
+    if (_block_in_block_is_insertable($block)) {
+      _block_in_block_store_block_to_insert($block);
+      unset($blocks[$key]);
+    }
+  }
+}
+
+/**
+ * Determines if the block is configured to be inserted into another block.
+ *
+ * @param $block
+ *   The block to test.
+ *
+ * @return bool
+ *   TRUE if it is set to be inserted, FALSE if not.
+ */
+function _block_in_block_is_insertable($block) {
+  $is_insertable = FALSE;
+  $block_in_block = &drupal_static('block_in_block');
+
+  $block_key = block_in_block_get_block_key($block);
+  if (!isset($block_in_block['blocks'][$block_key])) {
+    $insertion_settings = block_in_block_get_block_insertion_settings($block_key);
+    if ($insertion_settings && $insertion_settings['enabled']) {
+      $is_insertable = TRUE;
+    }
+  }
+  else {
+    $is_insertable = $block_in_block['blocks'][$block_key]['enabled'];
+  }
+
+  // Allow modules to change if a block should be inserted.
+  drupal_alter('block_in_block_is_insertable', $is_insertable, $block);
+
+  return $is_insertable;
+}
+
+/**
+ * Generates a key capable of being used as an unique identifier for a block.
+ *
+ * The key is comprised of the block's module and delta: "module_delta".
+ *
+ * @param $block
+ *   An object or array representing a block. Possibilities include:
+ *   - A block object.
+ *   - An associative array with the keys 'module' and 'delta'.
+ *   - A form array from a block configuration hook.
+ *   - A string containing a block (to retrieve its key_parts).
+ * @param &$key_parts
+ *   Optional array passed by reference to place the block key parts into.
+ *
+ * @return string|false
+ *   String containing the block's key, or FALSE on failure.
+ *
+ * @see _block_in_block_get_block_key_parts()
+ */
+function block_in_block_get_block_key($block, &$key_parts = NULL) {
+  $block_key = FALSE;
+  $key_parts = _block_in_block_get_block_key_parts($block);
+  if ($key_parts) {
+    $block_key = $key_parts['module'] . '_' . $key_parts['delta'];
+  }
+  elseif (is_string($block)) {
+    // The block is probably the block_key, and has more than one underscore, so
+    // its not possible to know which part is the MODULE and which the DELTA.
+    $block_key = $block;
+  }
+  return $block_key;
+}
+
+/**
+ * Retrieves the module and delta of a block.
+ *
+ * @param $block
+ *   An object or array representing a block. Possibilities include:
+ *   - A block object.
+ *   - An associative array with the keys 'module' and 'delta'.
+ *   - A form array from a block configuration hook.
+ *   - A string containing a block_key.
+ *
+ * @return array|false
+ *   An associative array containing the block's module and delta, or FALSE on
+ *   failure.
+ */
+function _block_in_block_get_block_key_parts($block) {
+  $key_parts = FALSE;
+  $module = NULL;
+  $delta = NULL;
+
+  if (is_string($block)) {
+    if (substr_count($block, '_') == 1) {
+      $block_parts = explode('_', $block);
+      $module = $block_parts[0];
+      $delta = $block_parts[1];
+    }
+  }
+  elseif (is_object($block)) {
+    if (isset($block->module) && isset($block->delta)) {
+      $module = $block->module;
+      $delta = $block->delta;
+    }
+  }
+  elseif (is_array($block) && array_key_exists('module', $block) && array_key_exists('delta', $block)) {
+    if (!is_array($block['module']) && !is_array($block['delta'])) {
+      $module = $block['module'];
+      $delta = $block['delta'];
+    }
+    elseif (array_key_exists('#value', $block['module']) && array_key_exists('#value', $block['delta'])) {
+      $module = $block['module']['#value'];
+      $delta = $block['delta']['#value'];
+    }
+  }
+  if ((is_string($module) && !empty($module)) && (is_string($delta) && !empty($delta))) {
+    $key_parts['module'] = $module;
+    $key_parts['delta'] = $delta;
+  }
+  return $key_parts;
+}
+
+/**
+ * Returns the insertion settings for one or more blocks.
+ *
+ * @param $block
+ *   A data structure representing one block, or NULL. Possibilities include:
+ *   - A block object.
+ *   - An associative array with the keys 'module' and 'delta'.
+ *   - A form array for a block configuration.
+ *   - A string containing a block key.
+ *   - NULL to retrieve insertion settings for all blocks.
+ * @param $include_disabled
+ *   Boolean to indicate whether to return the insertion settings for a block
+ *   if it's 'enabled' setting is false.
+ *
+ * @return array|false
+ *   FALSE if settings matching the request are not in the block_in_block table.
+ *   An array of insertion settings for multiple blocks.
+ *   An associative array containing the insertion settings of one block.
+ *
+ *   The settings array has a structure similar to the following:
+ *    'enabled' => TRUE if configured to be inserted, FALSE if not,
+ *    'target_substring' => [TARGET_SUBSTRING]
+ *    'insertion_type' => [INSERTION_TYPE] ('before', 'after' or 'replace'),
+ *    'occurrences': [OCCURRENCES] (comma separated string),
+ *    'target_blocks' => array(
+ *      [THEME_KEY_1] => array(
+ *        'block_key' => [TARGET_BLOCK_KEY] (block key of block to insert into),
+ *        'node_types' => array(
+ *          [NODE_TYPE_KEY_1] => array(
+ *            'view_modes' => array(
+ *              [VIEW_MODE_KEY_1] => [VIEW_MODE_KEY_1] to insert or 0 to not,
+ *            ),
+ *          ),
+ *        ),
+ *      ),
+ *    ),
+ *
+ * @see block_in_block_get_block_key()
+ *   For more information about block keys.
+ * @see _block_in_block_load_block_in_blocks()
+ */
+function block_in_block_get_block_insertion_settings($block = NULL, $include_disabled = FALSE) {
+  $settings = FALSE;
+  $block_in_block = &drupal_static('block_in_block');
+
+  if (!isset($block_in_block['blocks'])) {
+    $block_in_block['blocks'] = _block_in_block_load_block_in_blocks();
+  }
+
+  if ($block !== NULL) {
+    $block_key = block_in_block_get_block_key($block);
+    if ($block_key && isset($block_in_block['blocks'][$block_key])) {
+      if ($include_disabled || $block_in_block['blocks'][$block_key]['enabled']) {
+        $settings = $block_in_block['blocks'][$block_key];
+      }
+    }
+  }
+  else {
+    $settings = $block_in_block['blocks'];
+    if (!$include_disabled) {
+      $settings = array();
+      foreach ($block_in_block['blocks'] as $block_key => $block) {
+        if ($block['enabled']) {
+          $settings[$block_key] = $block;
+        }
+      }
+    }
+  }
+  return $settings;
+}
+
+/**
+ * Fetches all insertion settings from the database.
+ *
+ * @return array
+ *   Array of insertion settings grouped by block key.
+ *
+ * @see block_in_block_get_block_insertion_settings()
+ */
+function _block_in_block_load_block_in_blocks() {
+  $query = db_select('block_in_block', 'b');
+  $query->fields('b', array(
+    'module',
+    'delta',
+    'enabled',
+    'target_blocks',
+    'target_substring',
+    'insertion_type',
+    'occurrences',
+  ));
+  $query->addExpression("CONCAT(b.module, '_', b.delta)", 'block_key');
+  $blocks = $query->execute()->fetchAllAssoc('block_key', PDO::FETCH_ASSOC);
+  foreach ($blocks as &$block) {
+    $block['target_blocks'] = json_decode($block['target_blocks'], TRUE);
+    $block['enabled'] = (bool) $block['enabled'];
+    $block['occurrences'] = _block_in_block_get_formatted_occurrences_string($block['occurrences']);
+  }
+
+  // Allow modules to modify the block list.
+  drupal_alter('block_in_block_list', $blocks);
+
+  return $blocks;
+}
+
+/**
+ * Stores details about a block for later insertion.
+ *
+ * The details are stored using drupal_static under the name 'block_in_block',
+ * and in an associative array with the key 'target_blocks'. The array
+ * is structured so that each of its keys contains a specific detail about
+ * where, or how, the block should be inserted. This path along the array is
+ * referred to as an "insertion group". Blocks within the same insertion group
+ * will have their html inserted at the same location:
+ * [TARGET_BLOCK_KEY] => array(
+ *   [TARGET_SUBSTRING] => array(
+ *     [OCCURRENCES] => array(
+ *       [INSERTION_TYPE] => array(
+ *         'blocks_to_insert' => array of block objects keyed by block_key,
+ *         'insertion_group_placeholder' => [INSERTION_GROUP_PLACEHOLDER],
+ *         'insertion_group_key' = > [INSERTION_GROUP_KEY],
+ *         'target_block_key' = > [TARGET_BLOCK_KEY],
+ *         'target_substring' = > [TARGET_SUBSTRING],
+ *         'occurrences' = > [OCCURRENCES],
+ *         'insertion_type' = > [INSERTION_TYPE],
+ *       )
+ *     )
+ *   )
+ * )
+ *
+ * @param $block
+ *   The block to be acted upon.
+ *
+ * @see _block_in_block_get_content_with_placeholders()
+ *   For more information about the insertion group placeholders.
+ * @see _block_in_block_store_block_to_insert_into_main_content()
+ *   For more information about insertion groups for Main page content.
+ * @see block_in_block_get_block_key()
+ *   For more information about block keys.
+ */
+function _block_in_block_store_block_to_insert($block) {
+  $block_in_block = &drupal_static('block_in_block');
+  $block_key = block_in_block_get_block_key($block);
+  $settings = $block_in_block['blocks'][$block_key];
+
+  // Allow modules to modify the block insertion settings.
+  drupal_alter('block_in_block_settings', $settings, $block);
+
+  $block->insertion_settings = &$settings;
+  global $theme_key;
+  foreach ($settings['target_blocks'] as $target_theme_key => $target_theme_settings) {
+    $region = $block->region;
+    // Only store the settings for the current theme and region.
+    if ($target_theme_key == $theme_key && isset($target_theme_settings['regions'][$region])) {
+      $target_theme_region_settings = $target_theme_settings['regions'][$region];
+      $block_in_block['blocks_to_insert'][$block_key] = $target_theme_region_settings;
+      $target_block_key = $target_theme_region_settings['block_key'];
+      $insertion_groups_for_target_block = &$block_in_block['target_blocks'][$target_block_key];
+      if ($target_block_key == BLOCK_IN_BLOCK_MAIN_PAGE_CONTENT_KEY) {
+        _block_in_block_store_block_to_insert_into_main_content($insertion_groups_for_target_block, $target_theme_region_settings['node_types'], $block);
+      }
+      else {
+        $insertion_group = &$insertion_groups_for_target_block[$settings['target_substring']][$settings['occurrences']][$settings['insertion_type']];
+        $insertion_group_key = $target_block_key . $settings['target_substring'] . $settings['occurrences'] . $settings['insertion_type'];
+        if (!isset($insertion_group['insertion_group_key'])) {
+          $insertion_group['insertion_group_key'] = $insertion_group_key;
+          $insertion_group['target_block_key'] = $target_block_key;
+          $insertion_group['insertion_type'] = $settings['insertion_type'];
+        }
+        _block_in_block_add_block_to_insertion_group($insertion_group, $block);
+      }
+    }
+  }
+}
+
+/**
+ * Stores settings for a block for insertion into the Main page content.
+ *
+ * Blocks being inserted into the Main page content are stored with a different
+ * structure than other blocks. This is because blocks being inserted into the
+ * Main page content can be configured to be inserted only for certain
+ * node_types and view_modes:
+ * [TARGET_BLOCK_KEY] => array(
+ *   [NODE_TYPE_KEY] => array(
+ *     [VIEW_MODE_KEY] => array(
+ *       [TARGET_SUBSTRING] => array(
+ *         [OCCURRENCES] => array(
+ *           [INSERTION_TYPE] => arry(
+ *             'blocks_to_insert' => array of block objects keyed by block_key,
+ *             'insertion_group_placeholder' => [INSERTION_GROUP_PLACEHOLDER],
+ *             'insertion_group_key' = > [INSERTION_GROUP_KEY],
+ *             'target_block_key' = > [TARGET_BLOCK_KEY],
+ *             'node_type' = > [NODE_TYPE_KEY],
+ *             'view_mode' = > [VIEW_MODE_KEY],
+ *             'target_substring' = > [TARGET_SUBSTRING],
+ *             'occurrences' = > [OCCURRENCES],
+ *             'insertion_type' = > [INSERTION_TYPE],
+ *           )
+ *         )
+ *       )
+ *     )
+ *   )
+ * )
+ *
+ * @param &$insertion_groups_for_main_content
+ *   An associative array of insertion groups that target the Main page
+ *   content block.
+ * @param $settings
+ *   An associative array containing information of where, how, and what should
+ *   be inserted.
+ * @param $view_modes_by_node_type
+ *   An associative array containing information on which view modes the content
+ *   should be inserted into, keyed by node type.
+ *
+ * @see _block_in_block_store_block_to_insert()
+ *   For more information about how other blocks are stored.
+ * @see _block_in_block_store_block_to_insert()
+ *   For more information about insertion groups, insertion group keys, and how
+ *   the details are stored.
+ * @see _block_in_block_get_content_with_placeholders()
+ *   For more information about insertion group placeholder.
+ */
+function _block_in_block_store_block_to_insert_into_main_content(&$insertion_groups_for_main_content, $view_modes_by_node_type, $block) {
+  foreach ($view_modes_by_node_type as $node_type => $view_modes_for_node_type) {
+    foreach ($view_modes_for_node_type['view_modes'] as $view_mode => $enabled) {
+      if ($enabled) {
+        $settings = $block->insertion_settings;
+        $insertion_group = &$insertion_groups_for_main_content[$node_type][$view_mode][$settings['target_substring']][$settings['occurrences']][$settings['insertion_type']];
+        $insertion_group_key = BLOCK_IN_BLOCK_MAIN_PAGE_CONTENT_KEY . $node_type . $view_mode . $settings['target_substring'] . $settings['occurrences'] . $settings['insertion_type'];
+        if (!isset($insertion_group['insertion_group_key'])) {
+          $insertion_group['insertion_group_key'] = $insertion_group_key;
+          $insertion_group['target_block_key'] = BLOCK_IN_BLOCK_MAIN_PAGE_CONTENT_KEY;
+          $insertion_group['node_type'] = $node_type;
+          $insertion_group['view_mode'] = $view_mode;
+          $insertion_group['insertion_type'] = $settings['insertion_type'];
+        }
+        _block_in_block_add_block_to_insertion_group($insertion_group, $block);
+      }
+    }
+  }
+}
+
+/**
+ * Adds a block to its insertion group.
+ *
+ * @param &$insertion_group
+ *   Associative array that identifies where and how the content should be
+ *   inserted.
+ * @param $insertion_group_key
+ *   String that uniquely identifies the insertion group, and is used to
+ *   generate the insertion group's placehoder.
+ * @param $block
+ *   Block object with the insertion_settings array added as a property.
+ *
+ * @see _block_in_block_store_block_to_insert()
+ *   For more information about insertion groups, and insertion group keys.
+ * @see _block_in_block_get_content_with_placeholders()
+ *   For more information about insertion group placeholders.
+ */
+function _block_in_block_add_block_to_insertion_group(&$insertion_group, $block) {
+  if (!isset($insertion_group['insertion_group_placeholder'])) {
+    $insertion_group_placeholder = 'block_in_block_' . crc32($insertion_group['insertion_group_key']);
+    $insertion_group['insertion_group_placeholder'] = $insertion_group_placeholder;
+    $insertion_group['target_substring'] = $block->insertion_settings['target_substring'];
+    $insertion_group['occurrences'] = $block->insertion_settings['occurrences'];
+  }
+  $insertion_group['blocks_to_insert'][$block->insertion_settings['block_key']] = $block;
+}
+
+/**
+ * Implements hook_preprocess_block().
+ *
+ * @see block_in_block_preprocess_node()
+ *   For preprocessing of the Main page content block.
+ */
+function block_in_block_preprocess_block(&$variables) {
+  $block_in_block = &drupal_static('block_in_block');
+  $block = $variables['block'];
+  $block_key = block_in_block_get_block_key($block);
+  if (isset($block_in_block['blocks_to_insert'][$block_key])) {
+    // Preprocess for this block resulted from _block_in_block_render_blocks().
+    $variables['classes_array'][] = drupal_html_class('block-in-block-inserted-block');
+    $target_block_key = $block_in_block['blocks_to_insert'][$block_key]['block_key'];
+    $variables['classes_array'][] = drupal_html_class('block-in-block-inserted-block--' . $target_block_key);
+  }
+  if (isset($block_in_block['target_blocks'][$block_key]) && $block_key != BLOCK_IN_BLOCK_MAIN_PAGE_CONTENT_KEY) {
+    $insertions = $block_in_block['target_blocks'][$block_key];
+    $original_content = $variables['content'];
+    $content_with_insertions = _block_in_block_get_content_with_insertions($original_content, $insertions);
+    $variables['content'] = $content_with_insertions;
+  }
+}
+
+/**
+ * Implements hook_preprocess_node().
+ *
+ * @see block_in_block_preprocess_block()
+ *   For preprocessing of blocks other than the Main page content block.
+ */
+function block_in_block_preprocess_node(&$variables, $hook) {
+  $block_in_block = &drupal_static('block_in_block');
+  $node_type = $variables['type'];
+  $view_mode = $variables['view_mode'];
+  if (isset($block_in_block['target_blocks'][BLOCK_IN_BLOCK_MAIN_PAGE_CONTENT_KEY][$node_type][$view_mode])) {
+    $insertions = $block_in_block['target_blocks'][BLOCK_IN_BLOCK_MAIN_PAGE_CONTENT_KEY][$node_type][$view_mode];
+    $original_content = $variables['content']['body'][0]['#markup'];
+    $content_with_insertions = _block_in_block_get_content_with_insertions($original_content, $insertions);
+    $variables['content']['body'][0]['#markup'] = $content_with_insertions;
+  }
+}
+
+/**
+ * Takes content from insertion group(s), and places it into the given content.
+ *
+ * @param $content_to_insert_into
+ *   String in which the insertions are to take place.
+ * @param $insertions
+ *   Associative array of insertion groups, keyed by target substring.
+ *
+ * @return string
+ *   The content after all insertions have taken place.
+ *
+ * @see _block_in_block_store_block_to_insert()
+ *   For more information about insertion groups and target substrings.
+ * @see _block_in_block_get_content_with_placeholders()
+ *   For more information about insertion group placeholders.
+ */
+function _block_in_block_get_content_with_insertions($content_to_insert_into, $insertions) {
+  $content_with_insertions = $content_to_insert_into;
+  $content_with_placeholders = _block_in_block_get_content_with_placeholders($content_to_insert_into, $insertions);
+  if ($content_with_placeholders) {
+    $content_with_insertions = _block_in_block_replace_all_placeholders($content_with_placeholders);
+  }
+  return $content_with_insertions;
+}
+
+/**
+ * Inserts placeholders into content for future replacement.
+ *
+ * An "insertion group placeholder" is a string, unique to an insertion group,
+ * that is temporarily inserted into target blocks in lieu of the actual
+ * content. After all insertions have been processed (i.e. all placeholders
+ * inserted), the placeholders are replaced by the rendered content of the
+ * blocks for their respective insertion group. This is done to prevent
+ * conflicts when content from multiple blocks is being inserted into the same
+ * target block.
+ *
+ * @param $content
+ *   String in which the insertions are to take place.
+ * @param $insertion_groups_for_target_substrings
+ *   Associative array containing what to insert into the content (and how),
+ *   keyed by the "target substrings" that identify where to insert it.
+ *
+ * @return string|false
+ *   The content after all insertions have taken place.
+ *   FALSE if no target substrings were found in the content.
+ *
+ * @see block_in_block_get_block_insertion_settings()
+ *   For more information about target substrings.
+ * @see _block_in_block_store_block_to_insert()
+ *   For more information about insertion groups.
+ * @see _block_in_block_add_block_to_insertion_group()
+ *   For information on how placeholders are generated.
+ * @see _block_in_block_replace_all_placeholders()
+ */
+function _block_in_block_get_content_with_placeholders($content, $insertion_groups_for_target_substrings) {
+  $content_with_placeholders = $content;
+  $target_substring_found = FALSE;
+  foreach ($insertion_groups_for_target_substrings as $target_substring => $insertion_groups_for_occurrences) {
+    if (strpos($content, $target_substring) !== FALSE) {
+      $target_substring_found = TRUE;
+      $content_with_placeholders = _block_in_block_get_content_with_placeholders_at_occurrences($content_with_placeholders, $target_substring, $insertion_groups_for_occurrences);
+    }
+  }
+  if (!$target_substring_found) {
+    $content_with_placeholders = FALSE;
+  }
+  return $content_with_placeholders;
+}
+
+/**
+ * Inserts placeholders in content at particular occurrences of a substring.
+ *
+ * @param &$content
+ *   String in which the placeholders are to be inserted.
+ * @param $target_substring
+ *   String within the content that identifies where the placeholders are to be
+ *   inserted.
+ * @param $insertion_groups_for_occurrences
+ *   Associative array containing the insertion settings, keyed by the
+ *   occurrences of the target substring to be insert at, and the insertion
+ *   type.
+ *
+ * @see _block_in_block_store_block_to_insert()
+ *   For more information about $insertion_groups_for_occurrences.
+ */
+function _block_in_block_get_content_with_placeholders_at_occurrences($content, $target_substring, $insertion_groups_for_occurrences) {
+  $content_parts = block_in_block_explode_and_keep_delimiter($target_substring, $content);
+  foreach ($insertion_groups_for_occurrences as $occurrences => $insertion_groups_by_insertion_type) {
+    $occurrence_parts = explode(',', $occurrences);
+    // Sorting the $occurrence_parts ensures that occurrences that start with
+    // the negation operator ("!") are processed first.
+    sort($occurrence_parts);
+    $content_indexes_used = array();
+
+    // Allow modules to alter insertion at all occurrences.
+    $insertions_from_hooks = array();
+    $insertion_details = array(
+      'content_parts' => &$content_parts,
+      'content_indexes_used' => &$content_indexes_used,
+      'insertion_groups_by_insertion_type' => $insertion_groups_by_insertion_type,
+      'inserted_insertion_groups' => &$insertions_from_hooks,
+    );
+    drupal_alter('block_in_block_insert_placeholders_at_occurrences', $occurrence_parts, $insertion_details);
+    foreach ($insertions_from_hooks as $insertion_group) {
+      block_in_block_store_inserted_placeholder_content($insertion_group);
+    }
+
+    foreach ($occurrence_parts as $occurrence) {
+      _block_in_block_insert_placeholders_at_occurrence($content_parts, $insertion_groups_by_insertion_type, $content_indexes_used, $occurrence);
+    }
+  }
+  $content_with_placeholders = implode('', $content_parts);
+  return $content_with_placeholders;
+}
+
+/**
+ * Inserts placeholders in content at an occurrence, or occurrence expression.
+ *
+ * @param &$content_parts
+ *   Array of strings of the original content split by the target substring.
+ * @param $insertion_groups_by_insertion_type
+ *   Associative array containing insertion groups, keyed by how the
+ *   insertion is to take place. Possible keys:
+ *   - after: the content should be inserted after the target substring.
+ *   - before: the content should be inserted before the target substring.
+ *   - replace: the content should replace the target substring.
+ * @param &$content_indexes_used
+ *   Array of indexes that the placeholder should not be inserted into, because
+ *   it has already been inserted, or is excluded from being inserted there.
+ * @param $occurrence_expression
+ *   String containing an occurrence, or occurrence expression.
+ *
+ * @see _block_in_block_get_content_with_placeholders_at_occurrences()
+ */
+function _block_in_block_insert_placeholders_at_occurrence(&$content_parts, $insertion_groups_by_insertion_type, &$content_indexes_used, $occurrence_expression) {
+  $occurrence = $occurrence_expression;
+  $is_occurrence_to_exclude = FALSE;
+  if (strpos($occurrence_expression, '!') === 0) {
+    $is_occurrence_to_exclude = TRUE;
+    // Strip negation operator.
+    $occurrence = substr($occurrence_expression, 1);
+  }
+  if (_block_in_block_is_all_occurrences($occurrence)) {
+    _block_in_block_insert_placeholders_at_all_occurrences($content_parts, $insertion_groups_by_insertion_type, $content_indexes_used, $is_occurrence_to_exclude);
+  }
+  elseif (filter_var($occurrence, FILTER_VALIDATE_INT) !== FALSE) {
+    // Note: content_array[1] will contain the first occurrence of the
+    // target_substring; see block_in_block_explode_and_keep_delimiter().
+    $content_index = $occurrence;
+    if ($occurrence < 0) {
+      // Negative means to begin counting from the last occurrence, forward.
+      $content_index = $occurrence + count($content_parts);
+    }
+    if (isset($content_parts[$content_index]) && !_block_in_block_has_been_inserted($content_index, $content_indexes_used)) {
+      if (!$is_occurrence_to_exclude) {
+        _block_in_block_insert_placeholders($content_parts[$content_index], $insertion_groups_by_insertion_type);
+      }
+      $content_indexes_used[] = $content_index;
+    }
+  }
+  else {
+    $nth_occurrence_expression_parts = _block_in_block_get_nth_occurrence_expression_parts($occurrence);
+    if ($nth_occurrence_expression_parts) {
+      _block_in_block_insert_placeholders_at_nth_occurrence($nth_occurrence_expression_parts, $content_parts, $insertion_groups_by_insertion_type, $content_indexes_used, $is_occurrence_to_exclude);
+    }
+    else {
+
+      // Allow modules to insert using their own occurrence type.
+      $insertions_from_hooks = array();
+      $insertion_details = array(
+        'content_parts' => &$content_parts,
+        'content_indexes_used' => &$content_indexes_used,
+        'insertions_by_type' => $insertion_groups_by_insertion_type,
+        'is_occurrence_to_exclude' => $is_occurrence_to_exclude,
+        'inserted_insertion_groups' => &$insertions_from_hooks,
+      );
+      drupal_alter('block_in_block_insert_placeholders_at_occurrence', $occurrence_expression, $insertion_details);
+      foreach ($insertions_from_hooks as $insertion_group) {
+        block_in_block_store_inserted_placeholder_content($insertion_group);
+      }
+    }
+  }
+}
+
+/**
+ * Splits the string by the delimiter, keeping the delimiter after the split.
+ *
+ * This uses PHP's explode() function to split the string by the delimiter,
+ * but does not strip the delimiter from the content within the array.
+ *
+ * Note: The method used to accomplish this results in the second element of the
+ * array to begin with the first occurrence of the delimiter. In other words,
+ * the first element will never contain the delimiter within it. All other
+ * elements will begin with the delimiter. The first element of the array will
+ * be empty if the string begins with the delimiter.
+ *
+ * @param $delimiter
+ *   The boundary string.
+ * @param $string
+ *   String to be acted upon.
+ *
+ * @return array
+ *   Array of strings.
+ */
+function block_in_block_explode_and_keep_delimiter($delimiter, $string) {
+  $disposable_delimiter = '{{block_in_block_disposable_delimiter}}';
+  $concatenated_delimiters = $disposable_delimiter . $delimiter;
+  $string_with_disposable_delimiter = str_replace($delimiter, $concatenated_delimiters, $string);
+  $content_parts = explode($disposable_delimiter, $string_with_disposable_delimiter);
+  return $content_parts;
+}
+
+/**
+ * Determines if the given string represents "all occurrences".
+ *
+ * @param $occurrence
+ *   String to be acted upon.
+ *
+ * @return bool
+ *   TRUE if it does represent "all occurrences", FALSE otherwise.
+ */
+function _block_in_block_is_all_occurrences($occurrence) {
+  $is_all_occurrences = FALSE;
+  if ($occurrence == '0' || $occurrence == '1n' || $occurrence == 'n') {
+    $is_all_occurrences = TRUE;
+  }
+  return $is_all_occurrences;
+}
+
+/**
+ * Inserts placeholders at all occurrences of a substring.
+ *
+ * @param &$content_parts
+ *   Array of strings of the original content split by the target substring.
+ * @param $insertion_groups_by_insertion_type
+ *   Associative array containing insertion groups, keyed by how the
+ *   insertion is to take place. Possible keys:
+ *   - after: the content should be inserted after the target substring.
+ *   - before: the content should be inserted before the target substring.
+ *   - replace: the content should replace the target substring.
+ * @param &$content_indexes_used
+ *   Array of indexes that the placeholder should not be inserted into, because
+ *   it has already been inserted, or is excluded from being inserted there.
+ * @param $is_occurrence_to_exclude
+ *   Boolean indicating if indexes matching the expression should be added to
+ *   $content_indexes_used without inserting the placeholder.
+ *
+ * @see block_in_block_explode_and_keep_delimiter()
+ *   For more information about the $content_parts.
+ * @see _block_in_block_has_been_inserted()
+ *   For more information about $content_indexes_used.
+ * @see _block_in_block_get_content_with_placeholders_at_occurrences()
+ */
+function _block_in_block_insert_placeholders_at_all_occurrences(&$content_parts, $insertion_groups_by_insertion_type, &$content_indexes_used, $is_occurrence_to_exclude = FALSE) {
+  for ($i = 1; $i < count($content_parts); $i++) {
+    if (!_block_in_block_has_been_inserted($i, $content_indexes_used)) {
+      if (!$is_occurrence_to_exclude) {
+        _block_in_block_insert_placeholders($content_parts[$i], $insertion_groups_by_insertion_type);
+      }
+      $content_indexes_used[] = $i;
+    }
+  }
+}
+
+/**
+ * Determines if an occurrence has already been marked for insertion.
+ *
+ * This function is used to prevent a block that is configured with multiple
+ * occurrences, from being inserted at the same location more than once.
+ *
+ * For example, a block should be inserted after every third paragraph, but also
+ * must be inserted after the last paragraph ("3n, -1"). Keeping track of the
+ * indexes prevents the block from being inserted twice after the last
+ * paragraph, when there are three paragraphs in the content (or six, or nine,
+ * etc).
+ *
+ * @param $content_index
+ *   Integer with the index of the content array containing the occurrence to
+ *   test.
+ * @param &$content_indexes_used
+ *   Array of integers containing indexes that have been used to insert content.
+ *
+ * @return bool
+ *   TRUE if index has been used to insert content, FALSE if not.
+ */
+function _block_in_block_has_been_inserted($content_index, &$content_indexes_used) {
+  $has_been_inserted = TRUE;
+  if (!in_array($content_index, $content_indexes_used)) {
+    $has_been_inserted = FALSE;
+  }
+  return $has_been_inserted;
+}
+
+/**
+ * Inserts placeholder(s) using a target substring as the insertion point.
+ *
+ * @param &$content
+ *   String within which the insertions are to take place.
+ * @param $insertion_groups_by_insertion_type
+ *   Associative array containing insertion groups, keyed by how the
+ *   insertion is to take place. Possible keys:
+ *   - after: the content should be inserted after the target substring.
+ *   - before: the content should be inserted before the target substring.
+ *   - replace: the content should replace the target substring.
+ *
+ * @see _block_in_block_get_content_with_insertions
+ *   For more information about $insertion_groups_by_insertion_type.
+ * @see _block_in_block_get_content_with_placeholders()
+ *   For more information about insertion_group_placeholder.
+ */
+function _block_in_block_insert_placeholders(&$content, $insertion_groups_by_insertion_type) {
+  foreach ($insertion_groups_by_insertion_type as $insertion_group) {
+    block_in_block_store_inserted_placeholder_content($insertion_group);
+    $replace = _block_in_block_get_replace_string_for_insertion_group($insertion_group);
+    $target_substring = $insertion_group['target_substring'];
+    $content_with_placeholders = str_replace($target_substring, $replace, $content);
+
+    // Allow other modules to change how the placeholder is inserted, or
+    // implement custom insertion types.
+    drupal_alter('block_in_block_insert_placeholder', $content_with_placeholders, $content, $insertion_group);
+
+    $content = $content_with_placeholders;
+  }
+}
+
+/**
+ * Associates an inserted placeholder with the content that will replace it.
+ *
+ * @param $placeholder
+ *   String that was actually inserted, and will be replaced with the content.
+ * @param $content
+ *   String that will later replace the placeholder.
+ *
+ * @see _block_in_block_get_content_with_placeholders()
+ *   For more information about insertion group placeholders.
+ * @see _block_in_block_replace_all_placeholders()
+ *  For more information on how the replacement takes place.
+ */
+function block_in_block_store_inserted_placeholder_content($insertion_group) {
+  $block_in_block = &drupal_static('block_in_block');
+  if (!isset($block_in_block['inserted_placeholders'])) {
+    $block_in_block['inserted_placeholders'] = array();
+  }
+  $placeholder = $insertion_group['insertion_group_placeholder'];
+  $content = _block_in_block_render_blocks($insertion_group['blocks_to_insert']);
+  $block_in_block['inserted_placeholders'][$placeholder] = $content;
+}
+
+/**
+ * Renders HTML of a block.
+ *
+ * @param $block
+ *   The block object to render, or an array of block objects to render.
+ *
+ * @return string
+ *   The rendered HTML.
+ */
+function _block_in_block_render_blocks($block) {
+  if (!is_array($block)) {
+    $block = array($block);
+  }
+  $blocks_with_content = _block_render_blocks($block);
+  $renderable_blocks = _block_get_renderable_array($blocks_with_content);
+  $rendered_html = drupal_render($renderable_blocks);
+  return $rendered_html;
+}
+
+/**
+ * Creates a replace string for an insertion, based on the insertion type.
+ *
+ * @param $insertion_type
+ *   String indicating how the content will be inserted in relation to the
+ *   target substring.
+ * @param $target_substring
+ *   string to be found within the target blocks, used to identify the location
+ *   to insert.
+ * @param $content_to_insert
+ *   String to be inserted.
+ *
+ * @return string
+ *   "replace" to be used for the insertion.
+ */
+function _block_in_block_get_replace_string_for_insertion_group($insertion_group) {
+  $placeholder = $insertion_group['insertion_group_placeholder'];
+  $target_substring = $insertion_group['target_substring'];
+  $insertion_type = $insertion_group['insertion_type'];
+  $replace = $target_substring;
+  switch ($insertion_type) {
+    case BLOCK_IN_BLOCK_AFTER_TARGET:
+      $replace = $target_substring . $placeholder;
+      break;
+
+    case BLOCK_IN_BLOCK_BEFORE_TARGET:
+      $replace = $placeholder . $target_substring;
+      break;
+
+    case BLOCK_IN_BLOCK_REPLACE_TARGET:
+      $replace = $placeholder;
+      break;
+  }
+  // Allow other modules to alter the replace string or implement custom types.
+  drupal_alter('block_in_block_replacement_string', $replace, $insertion_group);
+  return $replace;
+}
+
+/**
+ * Uses an "nth-occurrence" expression to insert placeholders into content.
+ *
+ * @param $expression_parts
+ *   Associative array containing the parts of a nth-occurrence expression.
+ * @param &$content_parts
+ *   Array of strings of the original content split by the target substring.
+ * @param $insertion_groups_by_insertion_type
+ *   Associative array containing insertion groups, keyed by how the
+ *   insertion is to take place. Possible keys:
+ *   - after: the content should be inserted after the target substring.
+ *   - before: the content should be inserted before the target substring.
+ *   - replace: the content should replace the target substring.
+ * @param &$content_indexes_used
+ *   Array of indexes that the placeholder should not be inserted into, because
+ *   it has already been inserted, or is excluded from being inserted there.
+ * @param $is_occurrence_to_exclude
+ *   Boolean indicating if indexes matching the expression should be added to
+ *   $content_indexes_used without inserting the placeholder.
+ *
+ * @see block_in_block_explode_and_keep_delimiter()
+ *   For more information about the $content_parts.
+ * @see _block_in_block_has_been_inserted()
+ *   For more information about $content_indexes_used.
+ * @see _block_in_block_get_nth_occurrence_expression_parts()
+ *   For more information about nth-occurrence expression parts
+ * @see _block_in_block_get_content_with_placeholders_at_occurrences()
+ */
+function _block_in_block_insert_placeholders_at_nth_occurrence($expression_parts, &$content_parts, $insertion_groups_by_insertion_type, &$content_indexes_used, $is_occurrence_to_exclude = FALSE) {
+  if ($expression_parts !== FALSE) {
+    $a = $expression_parts['a'];
+    $b = $expression_parts['b'];
+    $final_insertion_made = FALSE;
+    $previous_index = FALSE;
+
+    // Note: first occurrence of the target_substring will always be at index 1.
+    // @see block_in_block_explode_and_keep_delimiter() for more information.
+    for ($n = 0; !$final_insertion_made; $n++) {
+      $content_index = $a * $n + ($b);
+      if (!_block_in_block_has_been_inserted($content_index, $content_indexes_used)) {
+        if ($content_index > 0) {
+          if (isset($content_parts[$content_index]) && !$is_occurrence_to_exclude) {
+            _block_in_block_insert_placeholders($content_parts[$content_index], $insertion_groups_by_insertion_type);
+          }
+          // The for loop should only be stopped at this point if the index
+          // hasn't *decreased* since the last iteration of the loop.
+          // For example, -n+5 when there are 4 occurrences: f(0)=5 exceeds the
+          // bounds of the array, but f(1)=4 does not.
+          elseif ($previous_index !== FALSE && $content_index >= $previous_index) {
+            $final_insertion_made = TRUE;
+          }
+        }
+        // The for loop should only be stopped at this point if the index
+        // hasn't *increased* since the last iteration of the loop.
+        // For example, 4n-7 is every fourth occurrence, starting with the
+        // first one. f(0)=-7, f(1)=-3, f(2)=1, etc.
+        elseif ($previous_index !== FALSE && $content_index <= $previous_index) {
+          $final_insertion_made = TRUE;
+        }
+        $content_indexes_used[] = $content_index;
+      }
+      $previous_index = $content_index;
+    }
+  }
+}
+
+/**
+ * Splits an "nth-occurrence" expression into its constituent parts.
+ *
+ * The expression is essentially the same as what would be used for the CSS
+ * pseudo-class nth-of-type(), "an+b", where:
+ * - a: non-zero integer (implied 1 if missing)
+ * - n: the literal letter "n"
+ * - +: operator, can be either "+" or "-", and required if "b" is included
+ *   in the expression.
+ * - b: positive integer, and required if the operator is included in the
+ *   expression.
+ *
+ * @param $expression
+ *   String to evaluate.
+ *
+ * @return array|false
+ *   Associative array containing the following keys:
+ *     - expression: string of the expression after the implied "1" has been
+ *       inserted for a missing "a".
+ *     - a: integer value of "a".
+ *     - b: integer value of "b", after the operator is applied as its sign.
+ *   FALSE on failure.
+ *
+ * @see _block_in_block_insert_placeholders_at_nth_occurrence()
+ *   For more information about nth-occurrence expressions.
+ */
+function _block_in_block_get_nth_occurrence_expression_parts($expression) {
+  $expression_parts = FALSE;
+  $original_expression = $expression;
+  // Add implied "1", if no value given for "a".
+  if (strpos($original_expression, 'n') === 0) {
+    $expression = '1' . $original_expression;
+  }
+  elseif (strpos($original_expression, '-n') === 0) {
+    $expression = substr_replace($original_expression, '1', 1, 0);
+  }
+  $non_zero_integer = '-?[1-9]\d*';
+  $operator = '[+-]';
+  $positive_integer = '[1-9]\d*';
+  $regexp = '/^(?P<expression>(?P<a>' . $non_zero_integer . ')(?P<n>n)(?P<signed_b>((?P<operator>' . $operator . ')(?P<b>' . $positive_integer . '))?))$/';
+  $is_valid_expression = preg_match($regexp, $expression, $matches);
+  if ($is_valid_expression) {
+    $expression_parts['expression'] = $matches['expression'];
+    $expression_parts['a'] = (int) $matches['a'];
+    $expression_parts['b'] = (int) $matches['signed_b'];
+  }
+  return $expression_parts;
+}
+
+/**
+ * Replaces all inserted placeholders with their corresponding content.
+ *
+ * @param $content_with_placeholders
+ *   String to be acted upon.
+ *
+ * @return string
+ *   The content after all placeholders have been replaced.
+ *
+ * @see _block_in_block_get_content_with_placeholders()
+ *   For more information about insertion group placeholders.
+ * @see block_in_block_store_inserted_placeholder_content()
+ *   For more information about how inserted placeholders are stored.
+ */
+function _block_in_block_replace_all_placeholders($content_with_placeholders) {
+  $content_after_replacements = $content_with_placeholders;
+  $block_in_block = &drupal_static('block_in_block');
+  if (isset($block_in_block['inserted_placeholders'])) {
+    $placeholders = array_keys($block_in_block['inserted_placeholders']);
+    $replacements = array_values($block_in_block['inserted_placeholders']);
+    $content_after_replacements = str_replace($placeholders, $replacements, $content_with_placeholders);
+  }
+  return $content_after_replacements;
+}
+
+/**
+ * Implements hook_form_FORMID_alter().
+ *
+ * Adds Block in Block specific visibility options to add block form.
+ *
+ * @see block_add_block_form()
+ */
+function block_in_block_form_block_add_block_form_alter(&$form, &$form_state) {
+  block_in_block_form_block_admin_configure_alter($form, $form_state);
+}
+
+/**
+ * Implements hook_form_FORMID_alter().
+ *
+ * Adds Block in Block specific visibility options to block configuration form.
+ *
+ * @see block_admin_configure()
+ */
+function block_in_block_form_block_admin_configure_alter(&$form, &$form_state) {
+  $block_in_block_fieldset = array(
+    '#type' => 'fieldset',
+    '#title' => t('Within another block'),
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+    '#group' => 'visibility',
+    '#weight' => 99,
+    '#attributes' => array('class' => array('block-in-block-form-block-settings')),
+    '#attached' => array(
+      'js' => array(drupal_get_path('module', 'block_in_block') . '/js/block_in_block_admin.js'),
+      'css' => array(drupal_get_path('module', 'block_in_block') . '/style/block_in_block_admin.css'),
+    ),
+  );
+  $defaults = block_in_block_get_configure_form_defaults($form);
+  $block_in_block_fieldset['block_in_block_enabled'] = _block_in_block_get_enabled_checkbox_field($defaults['enabled']);
+  $block_in_block_fieldset['block_in_block_target_blocks'] = _block_in_block_get_target_block_fieldset($form, $form_state, $defaults['target_blocks']);
+  $block_in_block_fieldset['block_in_block_target_substring'] = _block_in_block_get_target_substring_textfield($defaults['target_substring']);
+  $block_in_block_fieldset['block_in_block_insertion_type'] = _block_in_block_get_insertion_type_select_field($defaults['insertion_type']);
+  $block_in_block_fieldset['block_in_block_occurrences'] = _block_in_block_get_occurrences_textfield($defaults['occurrences']);
+
+  $form['visibility']['block_in_block'] = $block_in_block_fieldset;
+  $form['#validate'][] = '_block_in_block_form_block_admin_configure_validate';
+  $form['#submit'][] = 'block_in_block_form_block_admin_configure_submit';
+  return $form;
+}
+
+/**
+ * Returns default values for Block in Block fields in a configuration form.
+ *
+ * @param $form
+ *   The configuration form.
+ *
+ * @return array
+ *   Associative array containing the default values.
+ */
+function block_in_block_get_configure_form_defaults($form) {
+  $defaults = array(
+    'enabled' => 0,
+    'target_blocks' => array(),
+    'target_substring' => '',
+    'insertion_type' => BLOCK_IN_BLOCK_AFTER_TARGET,
+    'occurrences' => 1,
+  );
+
+  $insertion_settings = block_in_block_get_block_insertion_settings($form, TRUE);
+  if ($insertion_settings) {
+    $defaults['enabled'] = $insertion_settings['enabled'];
+    $defaults['target_blocks'] = $insertion_settings['target_blocks'];
+    $defaults['target_substring'] = $insertion_settings['target_substring'];
+    $defaults['insertion_type'] = $insertion_settings['insertion_type'];
+    $defaults['occurrences'] = $insertion_settings['occurrences'];
+  }
+  return $defaults;
+}
+
+/**
+ * Returns a checkbox field for the Block in Block 'enabled' setting.
+ *
+ * @param $default_enabled
+ *   Integer with the default value of the checkbox field.
+ *
+ * @return array
+ *   Associative array of the checkbox field.
+ */
+function _block_in_block_get_enabled_checkbox_field($default_enabled) {
+  $checkbox = array(
+    '#type' => 'checkbox',
+    '#title' => t('Enabled'),
+    '#description' => t('Enable to insert this Block inside another Block located in the same theme and region.'),
+    '#default_value' => $default_enabled,
+  );
+  return $checkbox;
+}
+
+/**
+ * Returns fieldset to select target blocks, node types and view modes by theme.
+ *
+ * If the block is not assigned to a region for a theme, then the fieldset will
+ * contain markup explaining a region needs to be assigned first.
+ *
+ * @param $form
+ *   Array of form elements that the select fields are to be placed into.
+ * @param $form_state
+ *   Array of metadata about state of form processing.
+ * @param $default_target_blocks
+ *   Associative array containing the block key for selected/default blocks,
+ *   keyed by theme, or an empty array if no defaults.
+ *
+ * @return array
+ *   Associative array of a fieldset with markup and/or field elements.
+ *
+ * @see block_in_block_form_block_admin_configure_alter()
+ * @see block_in_block_get_block_key()
+ *   For more information about block keys.
+ */
+function _block_in_block_get_target_block_fieldset($form, $form_state, $default_target_blocks) {
+  $fieldset = array(
+    '#tree' => TRUE,
+    'themes' => array(
+      '#type' => 'fieldset',
+      '#title' => t('Block to insert into'),
+    ),
+  );
+  $this_block_key = block_in_block_get_block_key($form);
+
+  // If the form is loading after a submit, it's possible the user has changed
+  // the regions the block is assigned to, which would affect how the fieldset
+  // should be built.
+  $is_form_reloading_after_submit = FALSE;
+  $form_input = $form_state['input'];
+  if ($form_input) {
+    $is_form_reloading_after_submit = TRUE;
+  }
+  // Get array of the form's region select fields keyed by theme.
+  $region_select_fields = array_intersect_key($form['regions'], array_flip(element_children($form['regions'])));
+  foreach ($region_select_fields as $theme_key => $region_select_field) {
+    $region_key = $region_select_field['#default_value'];
+    if ($is_form_reloading_after_submit  && !empty($form_input['block_in_block_enabled'])) {
+      // If the user changed the region the block is assigned to, then the
+      // new region's key needs to be used for creating the elements within the
+      // fieldset.
+      $region_key = _block_in_block_apply_region_changes($region_select_field, $default_target_blocks, $theme_key, $form_input);
+    }
+    if ($region_key) {
+      $default_target_block = '0';
+      if (isset($default_target_blocks[$theme_key]['regions'][$region_key])) {
+        $theme_region_defaults = $default_target_blocks[$theme_key]['regions'][$region_key];
+        $default_target_block = $theme_region_defaults['block_key'];
+      }
+      $target_block_select_field = _block_in_block_get_target_block_select_field($theme_key, $region_key, $region_select_field, $default_target_block, $this_block_key);
+      $fieldset['themes'][$theme_key]['regions'][$region_key]['block_key'] = $target_block_select_field;
+      $default_view_modes_by_node_type = array();
+      if (isset($theme_region_defaults['node_types'])) {
+        $default_view_modes_by_node_type = $theme_region_defaults['node_types'];
+      }
+      $target_block_field_selector = 'select[name="block_in_block_target_blocks[themes][' . $theme_key . '][regions][' . $region_key . '][block_key]"]';
+      $node_types_fieldset = _block_in_block_get_node_types_fieldset($form, $default_view_modes_by_node_type, $target_block_field_selector);
+      $fieldset['themes'][$theme_key]['regions'][$region_key]['node_types'] = $node_types_fieldset;
+    }
+    else {
+      $theme_name = $region_select_field['#title'];
+      $fieldset['themes'][$theme_key]['no_region_selected'] = _block_in_block_get_no_theme_region_markup($theme_key, $theme_name);
+    }
+  }
+  return $fieldset;
+}
+
+/**
+ * Determines the region key based on original and submitted form values.
+ *
+ * If a block that is configured to be inserted is assigned to a new region,
+ * then the region key for the new region is returned. The user is also shown
+ * a warning that the change will prevent the block from being inserted.
+ *
+ * @param $region_select_field
+ *   Associative array of the form select field to assign a region to the theme.
+ * @param $default_target_blocks
+ *   Associative array containing the block key for selected/default blocks,
+ *   keyed by theme, or an empty array if no defaults.
+ * @param $theme_key
+ *   String identifying the theme.
+ * @param $form_input
+ *   Array of unvalidated raw values entered into form fields.
+ *
+ * @return string|false
+ *   The region key, or FALSE if the block is not assigned to a region.
+ */
+function _block_in_block_apply_region_changes($region_select_field, $default_target_blocks, $theme_key, $form_input) {
+  $region_key = $region_select_field['#default_value'];
+  $original_region_key = $region_key;
+  $submitted_region_key = $form_input['regions'][$theme_key];
+  $empty_region_value = $region_select_field['#empty_value'];
+  if ($submitted_region_key != $empty_region_value) {
+    $submitted_target_block_regions = array();
+    if (isset($form_input['block_in_block_target_blocks']['themes'][$theme_key]['regions'])) {
+      $submitted_target_block_regions = $form_input['block_in_block_target_blocks']['themes'][$theme_key]['regions'];
+    }
+    // If the target block regions is missing the region key, then this is the
+    // first time the form has been submitted. Otherwise any change in the
+    // region has already been taken care of in a previous (failed) submit.
+    if (!isset($submitted_target_block_regions[$submitted_region_key])) {
+      if ($submitted_region_key != $original_region_key) {
+        // Was a target block assigned before the region change?
+        $is_target_block_in_old_region_selected = FALSE;
+        if (isset($default_target_blocks[$theme_key]['regions'][$original_region_key])) {
+          $is_target_block_in_old_region_selected = $default_target_blocks[$theme_key]['regions'][$original_region_key]['block_key'];
+        }
+        // Did the user select a target block from the old region before
+        // submitting the form?
+        if (!$is_target_block_in_old_region_selected && isset($submitted_target_block_regions[$original_region_key])) {
+          $is_target_block_in_old_region_selected = $submitted_target_block_regions[$original_region_key]['block_key'];
+        }
+        if ($is_target_block_in_old_region_selected) {
+          $theme_name = $region_select_field['#title'];
+          $new_region_name = $region_select_field['#options'][$submitted_region_key];
+          $warning_message = t('The block was configured to be inserted into another block in @theme_name, but because it was just moved into the @new_region_name region, the block it was set to insert into is no longer valid. The block will not appear in @theme_name.', array('@theme_name' => $theme_name, '@new_region_name' => $new_region_name));
+          drupal_set_message($warning_message, 'warning');
+        }
+      }
+    }
+    $region_key = $submitted_region_key;
+  }
+  else {
+    $region_key = FALSE;
+  }
+  return $region_key;
+}
+
+/**
+ * Returns a select field whose options are blocks assigned to a theme's region.
+ *
+ * @param $theme
+ *   The theme that the region belongs to.
+ * @param $region_select_field
+ *   Associative array of the form select field to assign a region to the theme.
+ * @param $default_target_block
+ *   String of the default value of the select field.
+ * @param $block_key_to_exclude
+ *   String of the block key for a block that should not be included, or
+ *   FALSE if all assigned blocks should be included.
+ *
+ * @return array
+ *   Associative array of a select field.
+ *
+ * @see _block_in_block_get_blocks_in_theme_region()
+ *   For more information about the select field's options array.
+ * @see block_in_block_get_block_key()
+ *   For more information about block keys.
+ */
+function _block_in_block_get_target_block_select_field($theme_key, $region_key, $region_select_field, $default_target_block, $block_key_to_exclude = FALSE) {
+  $theme_name = $region_select_field['#title'];
+  $description = t('To insert this block into another block within @theme_name, you must first select a region for @theme_name in "Region Settings", and then save the block.', array('@theme_name' => $theme_name));
+  $blocks_in_region = array('0' => 'None');
+  $region_name = $region_select_field['#options'][$region_key];
+  $description = t('The block that this block will be inserted into when displayed in the @region_name region of @theme_name.', array('@region_name' => $region_name, '@theme_name' => $theme_name));
+  $blocks_in_region = _block_in_block_get_blocks_in_theme_region($theme_key, $region_key, $block_key_to_exclude);
+  $select_field = array(
+    '#type' => 'select',
+    '#options' => $blocks_in_region,
+    '#title' => $theme_name,
+    '#description' => $description,
+    '#default_value' => $default_target_block,
+    '#attributes' => array('class' => array('block-in-block-target-block')),
+  );
+  return $select_field;
+}
+
+/**
+ * Returns markup explaining to assign a region before choosing a target block.
+ *
+ * @param $theme_key
+ *   String identifying the theme.
+ * @param $theme_name
+ *   String with the human readable name of the theme.
+ *
+ * @return array
+ *   Associative array containing renderable form elements.
+ */
+function _block_in_block_get_no_theme_region_markup($theme_key, $theme_name) {
+  $markup = array('#type' => 'container');
+
+  $description_id = drupal_html_class('block-in-block-missing-region-' . $theme_key);
+  $markup['label'] = array(
+    '#type' => 'markup',
+    '#prefix' => '<label for="' . $description_id . '">',
+    '#markup' => $theme_name,
+    '#suffix' => '</label>',
+  );
+  $description = t('To insert this block into another block within @theme_name, you must first select a region for @theme_name in "Region Settings", and then save the block.', array('@theme_name' => $theme_name));
+  $markup['description_container'] = array(
+    '#type' => 'container',
+    '#id' => $description_id,
+    '#attributes' => array(
+      'class' => array(
+        'description',
+      ),
+    ),
+  );
+  $markup['description_wrapper']['description'] = array('#markup' => $description);
+  return $markup;
+}
+
+/**
+ * Creates an associative array of blocks assigned to a theme's region.
+ *
+ * The array is meant to be used as a select field's #options attribute.
+ * The array will have '0' => 'None' as the first element, followed by the
+ * blocks assigned to the region, if any. If a $block_key_to_exclude is
+ * provided, any block with that block key will not be included in the array.
+ *
+ * @param $theme_key
+ *   String identifying the theme.
+ * @param $region_key
+ *   String identifying the region.
+ * @param $block_key_to_exclude
+ *   String with the block key for a block that should not be included, or
+ *   FALSE if all assigned blocks should be included.
+ *
+ * @return array
+ *   Associative array of block names keyed by block key, with '0' => 'None' as
+ *   the first element.
+ *
+ * @see block_in_block_get_block_key()
+ *   For more information about block keys.
+ */
+function _block_in_block_get_blocks_in_theme_region($theme_key, $region_key, $block_key_to_exclude = FALSE) {
+  $blocks_in_region = array('0' => t('None'));
+  $blocks_in_theme = block_admin_display_prepare_blocks($theme_key);
+  $processing_target_region = FALSE;
+  $region_processed = FALSE;
+  for ($i = 0; $i < count($blocks_in_theme) && $region_processed == FALSE; $i++) {
+    $block = $blocks_in_theme[$i];
+    if ($block['region'] == $region_key) {
+      $processing_target_region = TRUE;
+      $block_key = block_in_block_get_block_key($block);
+      if ($block_key && $block_key !== $block_key_to_exclude) {
+        $blocks_in_region[$block_key] = $block['info'];
+      }
+    }
+    elseif ($processing_target_region) {
+      $region_processed = TRUE;
+    }
+  }
+  return $blocks_in_region;
+}
+
+/**
+ * Returns fieldset with a fieldset for each node type to select view modes.
+ *
+ * @param $form
+ *   Array of form elements that the checkbox fields are to be placed into.
+ * @param $default_view_modes_by_node_type
+ *   Associative array containing view modes, keyed by node type, that make up
+ *   the default values of the checkboxes.
+ * @param $target_block_field_selector
+ *   String containing the selector of the target block select field whose value
+ *   determines whether the fieldset is visible/required.
+ *
+ * @return array
+ *   Associative array of a fieldset.
+ *
+ * @see block_in_block_form_block_admin_configure_alter()
+ * @see _block_in_block_get_node_type_view_mode_fields()
+ */
+function _block_in_block_get_node_types_fieldset($form, $default_view_modes_by_node_type, $target_block_field_selector) {
+  // Only show the fields for node types and view modes if the target block for
+  // the given theme is the Main page content.
+  $fieldset = array(
+    '#type' => 'fieldset',
+    '#title' => t('Content Types<span class="form-required">*</span>'),
+    '#description' => t('At least one content type needs to have a view mode selected when inserting a block into the Main page content.'),
+    '#attributes' => array('class' => array('block-in-block-fieldset')),
+    '#states' => array(
+      'required' => array(
+        $target_block_field_selector => array('value' => BLOCK_IN_BLOCK_MAIN_PAGE_CONTENT_KEY),
+      ),
+      'visible' => array(
+        $target_block_field_selector => array('value' => BLOCK_IN_BLOCK_MAIN_PAGE_CONTENT_KEY),
+      ),
+    ),
+  );
+  if (isset($form['visibility']['node_type']['types']['#options'])) {
+    $selectable_node_types = $form['visibility']['node_type']['types']['#options'];
+    foreach ($selectable_node_types as $node_type_key => $node_type_name) {
+      $default_view_modes = array();
+      if (isset($default_view_modes_by_node_type[$node_type_key]['view_modes'])) {
+        $default_view_modes = $default_view_modes_by_node_type[$node_type_key]['view_modes'];
+      }
+      $node_type_fieldset = _block_in_block_get_node_type_fieldset($node_type_name, $default_view_modes);
+      $fieldset[$node_type_key] = $node_type_fieldset;
+    }
+  }
+  return $fieldset;
+}
+
+/**
+ * Returns a fieldset for a node type with a checkbox field for each view mode.
+ *
+ * @param $node_type_name
+ *   String of the human readable name of the node type.
+ * @param $default_view_modes
+ *   Associative array of view modes whose checkboxes should be selected.
+ *
+ * @return array
+ *   Associative array of a fieldset.
+ */
+function _block_in_block_get_node_type_fieldset($node_type_name, $default_view_modes) {
+  // Expand the fieldset if any view mode checkboxes are checked.
+  $collapsed = TRUE;
+  if ($default_view_modes) {
+    foreach ($default_view_modes as $is_view_mode_enabled) {
+      if ($is_view_mode_enabled) {
+        $collapsed = FALSE;
+        break;
+      }
+    }
+  }
+  $fieldset = array(
+    '#type' => 'fieldset',
+    '#title' => $node_type_name,
+    '#attributes' => array('class' => array('block-in-block-fieldset')),
+    '#collapsible' => TRUE,
+    '#collapsed' => $collapsed,
+  );
+  $view_modes_checkboxes = _block_in_block_get_node_type_view_mode_fields($node_type_name, $default_view_modes);
+  $fieldset['view_modes'] = $view_modes_checkboxes;
+  return $fieldset;
+}
+
+/**
+ * Returns checkboxes field of view modes for a node type.
+ *
+ * @param $node_type_name
+ *   String of the human readable name of the node type.
+ * @param $default_view_modes
+ *   Associative array of view modes whose checkboxes should be selected.
+ *
+ * @return array
+ *   Associative array of checkboxes field.
+ *
+ * @see _block_in_block_get_node_types_fieldset()
+ */
+function _block_in_block_get_node_type_view_mode_fields($node_type_name, $default_view_modes) {
+  $description = t('The block will only be inserted when the @node_type_name is displayed in one of the selected view modes.', array('@node_type_name' => $node_type_name));
+  $view_modes_checkboxes = array(
+    '#type' => 'checkboxes',
+    '#default_value' => $default_view_modes,
+    '#options' => _block_in_block_get_view_modes_options_array(),
+    '#attributes' => array('class' => array('block-in-block-view_modes')),
+    '#description' => $description,
+  );
+  return $view_modes_checkboxes;
+}
+
+/**
+ * Returns an array of view modes to use as the options element of a form field.
+ *
+ * @return array
+ *   Associative array of view mode names keyed by their machine name.
+ */
+function _block_in_block_get_view_modes_options_array() {
+  $view_mode_options = &drupal_static(__FUNCTION__);
+  if (!isset($view_mode_options)) {
+    $node_info = entity_get_info('node');
+    $view_modes = $node_info['view modes'];
+    $view_mode_options = array();
+    foreach ($view_modes as $view_mode_key => $view_mode_info) {
+      $view_mode_options[$view_mode_key] = $view_mode_info['label'];
+    }
+  }
+  return $view_mode_options;
+}
+
+/**
+ * Returns a textfield for the Block in Block 'target substring' setting.
+ *
+ * @param $default_target_substring
+ *   String with the default value of the field.
+ *
+ * @return array
+ *   Associative array of a textfield.
+ */
+function _block_in_block_get_target_substring_textfield($default_target_substring) {
+  $description = t('Case sensitive string within the target block that identifies the location to insert this block. The block will not be displayed if the string is not in the target block.<br />For example, "@opening_p" for the beginning of any paragraph, or "@closing_p" for the end of any paragraph.', array('@opening_p' => '<p>', '@closing_p' => '</p>'));
+  $textfield = array(
+    '#type' => 'textfield',
+    '#title' => t('Where to insert'),
+    '#description' => $description,
+    '#default_value' => $default_target_substring,
+    '#states' => array(
+      'required' => array(
+        ':input[name=block_in_block_enabled]' => array('checked' => TRUE),
+      ),
+    ),
+  );
+
+  return $textfield;
+}
+
+/**
+ * Returns a select field for the Block in Block 'insertion type' setting.
+ *
+ * @param $default_insertion_type
+ *   String with the default value of the field.
+ *
+ * @return array
+ *   Associative array of a select field.
+ */
+function _block_in_block_get_insertion_type_select_field($default_insertion_type) {
+  $insertion_type_description = t('How the block should be inserted.<br /><pre>Examples: <em>Before String</em> @opening_p, to insert the block before a paragraph. <em>After String</em> @closing_p, to insert the block after a paragraph. <em>Replace String</em> !!REPLACE_THIS!!, to replace the string with the contents of the block.</pre>', array('@opening_p' => '<p>', '@closing_p' => '</p>'));
+  $insertion_types = array(
+    BLOCK_IN_BLOCK_AFTER_TARGET => t('After String'),
+    BLOCK_IN_BLOCK_BEFORE_TARGET => t('Before String'),
+    BLOCK_IN_BLOCK_REPLACE_TARGET => t('Replace String'),
+  );
+
+  // Allow modules to alter or add their own insertion types.
+  $new_insertion_types = module_invoke_all('block_in_block_add_insertion_types');
+  foreach ($new_insertion_types as $new_insertion_type) {
+    $insertion_types[] = $new_insertion_type;
+  }
+  drupal_alter('block_in_block_insertion_types', $insertion_types);
+
+  $select_field = array(
+    '#type' => 'select',
+    '#options' => $insertion_types,
+    '#title' => t('How to insert'),
+    '#description' => $insertion_type_description,
+    '#default_value' => $default_insertion_type,
+  );
+  return $select_field;
+}
+
+/**
+ * Returns a textfield for the Block in Block 'occurrences' setting.
+ *
+ * @param $default_occurrences
+ *   String with the default value of the field.
+ *
+ * @return array
+ *   Associative array of a textfield.
+ */
+function _block_in_block_get_occurrences_textfield($default_occurrences) {
+  $occurrences_description = t(
+    'The occurrence of <span class="block-in-block-where-to-insert">the "Where to insert" string</span> to insert the block at.
+   A <span class="block-in-block-occurrence-example">positive number</span> is the specific occurrence to insert at (1 for the first, 2 for the second, etc).
+   A <span class="block-in-block-occurrence-example">negative number</span> begins counting from the end (-1 for the last, -2 for the second to last, etc).
+   A <span class="block-in-block-occurrence-example">0 (zero)</span> is all occurrences.
+   A <span class="block-in-block-occurrence-example">"nth-occurrence"</span> expression, which borrows its format from the CSS pseudo-class nth-of-type().
+   <span class="block-in-block-occurrence-example">2n</span>: even numbered; <span class="block-in-block-occurrence-example">2n+1</span>: odd numbered;
+    <span class="block-in-block-occurrence-example">3n</span>: every third; etc.
+    Place a <span class="block-in-block-occurrence-example">comma (",") between occurrences</span> to combine their rules: <span class="block-in-block-occurrence-example">1,-1</span>: the first and last occurrence.
+    Place the <span class="block-in-block-occurrence-example">negation operator ("!") before an occurrence</span> to prevent the block from being inserted there:
+    <span class="block-in-block-occurrence-example">3n,-1,!-2</span>: every third, plus the last, but never the second-to-last.
+    The order does not matter, and this block will never be inserted more than once at the same occurrence.
+    (<span class="block-in-block-occurrence-example">"3,3n,2n+1"</span> will not insert the block three times at the third occurrence).
+    The block will not be displayed if there are less occurrences than what is entered (e.g. set to 3, but there are only 2 occurrences).'
+  );
+
+  $textfield = array(
+    '#type' => 'textfield',
+    '#title' => t('Occurrences to insert at'),
+    '#description' => $occurrences_description,
+    '#default_value' => $default_occurrences,
+    '#states' => array(
+      'required' => array(
+        ':input[name=block_in_block_enabled]' => array('checked' => TRUE),
+      ),
+    ),
+  );
+  return $textfield;
+}
+
+/**
+ * Validation handler for block_in_block_form_block_admin_configure_alter().
+ *
+ * @see block_in_block_form_block_admin_configure_alter()
+ * @see block_in_block_form_block_admin_configure_submit()
+ */
+function _block_in_block_form_block_admin_configure_validate($form, &$form_state) {
+  $enabled = $form_state['values']['block_in_block_enabled'];
+  if ($enabled) {
+    $has_region_changed = _block_in_block_has_region_changed($form, $form_state);
+    if ($has_region_changed === FALSE) {
+      _block_in_block_form_validate_target_blocks($form_state);
+      _block_in_block_form_validate_target_substring($form_state);
+      _block_in_block_form_validate_occurrences($form_state);
+    }
+    elseif ($has_region_changed === -1) {
+      // Block is not assigned to any region.
+      $form_state['values']['block_in_block_enabled'] = 0;
+      $form_state['values']['block_in_block_target_blocks']['themes'] = array();
+      $warning_message = t('The block was configured to be inserted into another block, but since it is not assigned to a region its insertion settings have been disabled.');
+      drupal_set_message($warning_message, 'warning');
+    }
+    else {
+      $error_message = t('The block is configured to be inserted into another block, but the region it was placed in has changed. Please select a block to insert this one into, or disable it from being inserted.');
+      form_set_error('block_in_block_target_blocks_region_changed', $error_message);
+    }
+  }
+}
+
+/**
+ * Determines if a region the block was assigned to has changed.
+ *
+ * @param $form
+ *   Array of form elements.
+ * @param $form_state
+ *   Array of metadata about state of form processing.
+ *
+ * @return bool|int
+ *   TRUE if the block is assigned to a new region, FALSE if it hasn't, and
+ *   -1 if the block is not assigned to any region.
+ */
+function _block_in_block_has_region_changed($form, &$form_state) {
+  $region_changed = FALSE;
+  $submitted_values = $form_state['input'];
+  if (isset($form_state['values'])) {
+    $submitted_values = $form_state['values'];
+  }
+  if ($submitted_values) {
+    $is_region_selected = FALSE;
+    foreach ($submitted_values['regions'] as $theme => $region) {
+      $empty_region_value = $form['regions'][$theme]['#empty_value'];
+      if ($region == $empty_region_value) {
+        // Region was selected, but now no region is selected.
+        if (isset($submitted_values['block_in_block_target_blocks']['themes'][$theme]['regions'])) {
+          $region_changed = TRUE;
+        }
+      }
+      else {
+        $is_region_selected = TRUE;
+        // Check if the current region is the same as the previous one.
+        if (!isset($submitted_values['block_in_block_target_blocks']['themes'][$theme]['regions'][$region])) {
+          // A new region has been selected.
+          $region_changed = TRUE;
+        }
+      }
+    }
+    if (!$is_region_selected) {
+      // No regions are selected.
+      $region_changed = -1;
+    }
+  }
+  return $region_changed;
+}
+
+/**
+ * Form Validation handler for target_blocks fields.
+ *
+ * Files a form error if there isn't at least one target block selected.
+ *
+ * @param $form_state
+ *   Array of metadata about state of form processing.
+ *
+ * @see _block_in_block_form_block_admin_configure_validate()
+ */
+function _block_in_block_form_validate_target_blocks($form_state) {
+  $target_block_is_selected = FALSE;
+  if (isset($form_state['values']['block_in_block_target_blocks'])) {
+    $target_blocks_by_theme = $form_state['values']['block_in_block_target_blocks'];
+    foreach ($target_blocks_by_theme['themes'] as $theme_key => $theme_details) {
+      foreach ($theme_details['regions'] as $region_key => $region_details) {
+        if ($region_details['block_key']) {
+          $target_block_is_selected = TRUE;
+          if ($region_details['block_key'] == BLOCK_IN_BLOCK_MAIN_PAGE_CONTENT_KEY) {
+            $theme_region_fieldset_selector = 'block_in_block_target_blocks][themes][' . $theme_key . '][regions][' . $region_key;
+            _block_in_block_form_validate_view_modes($region_details['node_types'], $theme_region_fieldset_selector);
+          }
+        }
+      }
+    }
+  }
+
+  if (!$target_block_is_selected) {
+    $error_message = t('At least one Block to insert into is required to be selected when inserting a block into another block.');
+    form_set_error('block_in_block_target_blocks', $error_message);
+  }
+}
+
+/**
+ * Form Validation handler for view mode fields.
+ *
+ * Files a form error if there isn't at least one view mode selected. Should
+ * be called if the block being inserted into is the Main page content block.
+ *
+ * @param $view_modes_by_node_type
+ *   Associative array of metadata about the state of view mode fields.
+ * @param $theme_region_fieldset_selector
+ *   String of the selector of the parent fieldset the view modes are contained
+ *   in. Used to set the element that the error is set on if validation fails.
+ *
+ * @see _block_in_block_form_block_admin_configure_validate()
+ */
+function _block_in_block_form_validate_view_modes($view_modes_by_node_type, $theme_region_fieldset_selector) {
+  $view_mode_is_selected = FALSE;
+  if ($view_modes_by_node_type) {
+    foreach ($view_modes_by_node_type as $node_type) {
+      foreach ($node_type['view_modes'] as $is_selected) {
+        if ($is_selected) {
+          $view_mode_is_selected = TRUE;
+          break;
+        }
+      }
+      if ($view_mode_is_selected) {
+        break;
+      }
+    }
+  }
+
+  if (!$view_mode_is_selected) {
+    $error_message = t("At least one content type's view mode is required to be checked when inserting a block within the Main page content.");
+    form_set_error($theme_region_fieldset_selector . '][node_types', $error_message);
+  }
+}
+
+/**
+ * Form Validation handler for target substring field.
+ *
+ * Files a form error if the form element has no value.
+ *
+ * @param $form_state
+ *   Array of metadata about state of form processing.
+ *
+ * @see _block_in_block_form_block_admin_configure_validate()
+ */
+function _block_in_block_form_validate_target_substring($form_state) {
+  $target_substring = $form_state['values']['block_in_block_target_substring'];
+  $error_message = FALSE;
+  if (!$target_substring) {
+    $error_message = t('"Where to insert" field is required when inserting a block into another block.');
+  }
+  elseif (!trim($target_substring)) {
+    $error_message = t('"Where to insert" field contains only whitespace.');
+  }
+
+  if ($error_message) {
+    form_set_error('block_in_block_target_substring', $error_message);
+  }
+}
+
+/**
+ * Form Validation handler for occurrences field.
+ *
+ * Files a form error if the form element has no value, or contains invalid
+ * occurrence(s).
+ *
+ * @param $form_state
+ *   Array of metadata about state of form processing.
+ *
+ * @see _block_in_block_form_block_admin_configure_validate()
+ */
+function _block_in_block_form_validate_occurrences($form_state) {
+  $occurrences_form_value = $form_state['values']['block_in_block_occurrences'];
+  $occurrences = _block_in_block_get_formatted_occurrences_string($occurrences_form_value);
+  $invalid_occurrences = array();
+  $error_messages = array();
+  $error_message = '';
+  if (!$occurrences) {
+    $error_message = t('"Occurrence to insert at" field is required when inserting a block into another block.');
+  }
+  else {
+    $occurrence_parts = explode(',', $occurrences);
+    foreach ($occurrence_parts as $occurrence) {
+      if (!_block_in_block_is_valid_occurrence($occurrence, $error_messages)) {
+        $invalid_occurrences[] = $occurrence;
+      }
+    }
+    if (count($invalid_occurrences) == 1) {
+      $error_message = t('"%occurrence" is not a valid Occurrence to insert at.', array('%occurrence' => $invalid_occurrences[0]));
+    }
+    elseif (count($invalid_occurrences) > 1) {
+      $error_message = t('Invalid Occurrences to insert at: %occurrences', array('%occurrences' => '"' . implode('", "', $invalid_occurrences) . '"'));
+    }
+
+    if ($error_messages) {
+      $error_message .= '<ul><li>' . implode('</li><li>', $error_messages) . '</li></ul>';
+    }
+  }
+  if (!empty($error_message)) {
+    form_set_error('block_in_block_occurrences', $error_message);
+  }
+}
+
+/**
+ * Formats a string to what is required for parsing occurrences.
+ *
+ * Removes whitespace and changes uppercase "N" to lowercase.
+ *
+ * @param $occurrences
+ *   String to act upon.
+ *
+ * @return string
+ *   The formatted string.
+ */
+function _block_in_block_get_formatted_occurrences_string($occurrences) {
+  $formatted_occurrences = $occurrences;
+  if ($occurrences) {
+    // Remove whitespace, and change "N" to lowercase.
+    $formatted_occurrences = preg_replace(array('/\s+/', '/N/'), array('', 'n'), $occurrences);
+  }
+  return $formatted_occurrences;
+}
+
+/**
+ * Determines if a string is a valid occurrence.
+ *
+ * @param $occurrence
+ *   String to evaluate.
+ * @param &$error_messages
+ *   Optional array to add any validation error messages into.
+ *
+ * @return bool
+ *   TRUE if a valid occurrence, FALSE otherwise.
+ */
+function _block_in_block_is_valid_occurrence($occurrence, &$error_messages = array()) {
+  $is_valid = FALSE;
+  $original_occurrence = $occurrence;
+  // If necessary, strip negation operator ("!") before evaluating it.
+  // Note: Allowing "!0" and "!n" (exclude all occurrences): unlikely it was
+  // entered in error, and maybe someone actually has a reason to do it.
+  if (strpos($original_occurrence, '!') === 0) {
+    $occurrence = substr($original_occurrence, 1);
+  }
+  if (filter_var($occurrence, FILTER_VALIDATE_INT) !== FALSE) {
+    $is_valid = TRUE;
+  }
+  else {
+    $nth_occurrence_errors = array();
+    if (_block_in_block_is_valid_nth_occurrence($original_occurrence, $nth_occurrence_errors)) {
+      $is_valid = TRUE;
+    }
+    elseif (!empty($nth_occurrence_errors)) {
+      $error_messages = array_merge($error_messages, $nth_occurrence_errors);
+    }
+    else {
+      // Allow modules to validate custom occurrence types.
+      $custom_error_messages = array();
+      drupal_alter('block_in_block_is_valid_occurrence', $is_valid, $custom_error_messages, $occurrence);
+
+      if (!empty($custom_error_messages)) {
+        $error_messages = array_merge($error_messages, $custom_error_messages);
+      }
+      elseif (!$is_valid) {
+        // Using a key to prevent this error from being shown more than once.
+        $error_messages['unknown'] = t('A valid occurrence can be an integer, or an expression in the form: "n", "an", or "an+b", where "n" is the literal letter "n", "a" and "b" are integers, and "a" does not equal zero.');
+      }
+    }
+  }
+  return $is_valid;
+}
+
+/**
+ * Determines whether a string is a valid "nth-occurrence" expression.
+ *
+ * @param $expression
+ *   String to evaluate.
+ * @param &$error_messages
+ *   Optional array to add any validation error messages into.
+ *
+ * @return bool
+ *   TRUE if valid, FALSE otherwise.
+ *
+ * @see _block_in_block_insert_placeholders_at_nth_occurrence()
+ *   For more information about nth-occurrence expressions.
+ */
+function _block_in_block_is_valid_nth_occurrence($expression, &$error_messages = array()) {
+  $is_valid = FALSE;
+  $original_expression = $expression;
+  // Strip a negation operator ("!") before evaluating the expression.
+  if (strpos($original_expression, '!') === 0) {
+    $expression = substr($original_expression, 1);
+  }
+  $expression_parts = _block_in_block_get_nth_occurrence_expression_parts($expression);
+  if ($expression_parts !== FALSE) {
+    // Has the correct format, but it cannot be a valid expression if all values
+    // for "n" equal a negative number.
+    $a = $expression_parts['a'];
+    $b = $expression_parts['b'];
+    $value_when_n_is_0 = $b;
+    $value_when_n_is_1 = $a + $b;
+    if ($value_when_n_is_0 > 0 || $value_when_n_is_1 > $value_when_n_is_0) {
+      $is_valid = TRUE;
+    }
+    else {
+      $error_messages[] = t('"@original_expression" will never result in a positive number (n=0: @value_when_n_is_0, n=1, @value_when_n_is_1, etc).',
+        array(
+          '@original_expression' => $original_expression,
+          '@value_when_n_is_0' => $value_when_n_is_0,
+          '@value_when_n_is_1' => $value_when_n_is_1,
+        )
+      );
+    }
+  }
+  return $is_valid;
+}
+
+/**
+ * Form submission handler for block_in_block_form_block_admin_configure_alter.
+ *
+ * @see block_in_block_form_block_admin_configure_alter()
+ */
+function block_in_block_form_block_admin_configure_submit($form, &$form_state) {
+  db_delete('block_in_block')
+    ->condition('module', $form_state['values']['module'])
+    ->condition('delta', $form_state['values']['delta'])
+    ->execute();
+
+  $target_blocks_value = array();
+  if (isset($form_state['values']['block_in_block_target_blocks']['themes'])) {
+    $target_blocks_value = $form_state['values']['block_in_block_target_blocks']['themes'];
+  }
+  $query = db_insert('block_in_block')->fields(array(
+    'module' => $form_state['values']['module'],
+    'delta' => $form_state['values']['delta'],
+    'enabled' => $form_state['values']['block_in_block_enabled'],
+    'target_blocks' => json_encode($target_blocks_value),
+    'target_substring' => $form_state['values']['block_in_block_target_substring'],
+    'insertion_type' => $form_state['values']['block_in_block_insertion_type'],
+    'occurrences' => $form_state['values']['block_in_block_occurrences'],
+  ));
+  $query->execute();
+}
+
+/**
+ * Implements hook_form_FORMID_alter().
+ *
+ * Shows the name of the block being inserted into in the list of blocks in the
+ * Block modules main admin page. If there are insertion settings for a block
+ * that is no longer listed on that page, then the settings are deleted from the
+ * block_in_block table.
+ *
+ * @see block_admin_display_form()
+ */
+function block_in_block_form_block_admin_display_form_alter(&$form, &$form_state) {
+  $blocks_being_inserted = block_in_block_get_block_insertion_settings(NULL, TRUE);
+  $blocks_to_delete = array();
+  $theme = $form['edited_theme']['#value'];
+  foreach ($blocks_being_inserted as $block_key => $settings) {
+    if (isset($form['blocks'][$block_key])) {
+      $region_key = $form['blocks'][$block_key]['region']['#default_value'];
+      if ($settings['enabled'] == TRUE && !empty($settings['target_blocks'][$theme]['regions'][$region_key]['block_key'])) {
+        $target_block_key = $settings['target_blocks'][$theme]['regions'][$region_key]['block_key'];
+        if (isset($form['blocks'][$target_block_key])) {
+          $target_block_name = $form['blocks'][$target_block_key]['info']['#markup'];
+          if (strlen($target_block_name) > 20) {
+            $target_block_name = substr($target_block_name, 0, 20) . '...';
+          }
+          $form['blocks'][$block_key]['info']['#markup'] .= ' ' . t('(within @target_block_name)', array('@target_block_name' => $target_block_name));
+        }
+      }
+    }
+    else {
+      $blocks_to_delete[$block_key] = $settings;
+    }
+  }
+  if ($blocks_to_delete) {
+    _block_in_block_delete_blocks($blocks_to_delete);
+  }
+}
+
+/**
+ * Deletes blocks from the block_in_block table.
+ *
+ * @param $blocks
+ *   Array of block insertion settings.
+ */
+function _block_in_block_delete_blocks($blocks) {
+  if ($blocks) {
+    $module_and_delta_pairs = db_or();
+    foreach ($blocks as $block) {
+      $block_module_and_delta = db_and()->condition('module', $block['module'])->condition('delta', $block['delta']);
+      $module_and_delta_pairs->condition($block_module_and_delta);
+    }
+    db_delete('block_in_block')->condition($module_and_delta_pairs)->execute();
+  }
+}
+
+/**
+ * Implements hook_help().
+ */
+function block_in_block_help($path, $arg) {
+  switch ($path) {
+    case 'admin/help#block_in_block':
+
+      $filepath = dirname(__FILE__) . '/README.md';
+      if (file_exists($filepath)) {
+        $readme = file_get_contents($filepath);
+      }
+      if (!isset($readme)) {
+        return NULL;
+      }
+      if (module_exists('markdown')) {
+        $filters = module_invoke('markdown', 'filter_info');
+        $info = $filters['filter_markdown'];
+
+        if (function_exists($info['process callback'])) {
+          $output = $info['process callback']($readme, NULL);
+        }
+        else {
+          $output = '<pre>' . $readme . '</pre>';
+        }
+      }
+      else {
+        $output = '<pre>' . $readme . '</pre>';
+      }
+
+      return $output;
+  }
+}

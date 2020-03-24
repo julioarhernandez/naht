@@ -1,0 +1,12 @@
+.block-in-block-form-block-settings fieldset.error {
+  border: 2px solid red;
+}
+.block-in-block-form-block-settings .fieldset-description {
+  font-size: .923em;
+}
+.block-in-block-view_modes .form-required {
+  visibility: hidden;
+}
+.block-in-block-occurrence-example {
+  font-weight: bold;
+}

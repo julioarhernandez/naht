@@ -1,0 +1,12 @@
+
+name = Block in Block
+description = Adds ability to place blocks within other blocks
+package = Block in Block
+core = 7.x
+dependencies[] = block
+
+; Information added by Drupal.org packaging script on 2019-12-11
+version = "7.x-1.0-rc3"
+core = "7.x"
+project = "block_in_block"
+datestamp = "1576106290"

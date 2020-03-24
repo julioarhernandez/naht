@@ -1,0 +1,183 @@
+<?php
+
+/**
+ * @file
+ * Install, update and uninstall functions for the block_in_block module.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function block_in_block_schema() {
+  $schema['block_in_block'] = array(
+    'description' => 'Base table for block_in_block',
+    'fields' => array(
+      'module' => array(
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+        'description' => "The block's origin module, from {block}.module.",
+      ),
+      'delta' => array(
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'description' => "The block's unique delta within module, from {block}.delta.",
+      ),
+      'enabled' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'size' => 'tiny',
+        'description' => "Boolean indicating whether the block is meant to be placed within another block.",
+      ),
+      'target_blocks' => array(
+        'type' => 'text',
+        'size' => 'normal',
+        'not null' => TRUE,
+        'description' => "The block(s) that this block should be inserted into (json encoded array of each target block's module-delta, keyed by theme).",
+      ),
+      'target_substring' => array(
+        'type' => 'varchar',
+        'length' => 250,
+        'not null' => TRUE,
+        'description' => "A string within the target blocks used to identify where this block's content should be inserted.",
+      ),
+      'insertion_type' => array(
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'description' => 'How the block should be inserted ("above" the target substring, "below" it, or "replace" it).',
+      ),
+      'occurrences' => array(
+        'type' => 'varchar',
+        'length' => 250,
+        'not null' => TRUE,
+        'default' => '1',
+        'description' => "The occurrence of the target substring to use for inserting the block. Positive number for the exact occurrence, -1 for the last occurrence, and 0 all occurrences.",
+      ),
+    ),
+    'primary key' => array('module', 'delta'),
+  );
+  return $schema;
+}
+
+/**
+ * Implements hook_install().
+ */
+function block_in_block_install() {
+  db_update('system')
+    ->fields(array('weight' => 100))
+    ->condition('name', 'block_in_block', '=')
+    ->execute();
+}
+
+/**
+ * Add 'view_modes' key to json in target_blocks field in block_in_block table.
+ */
+function block_in_block_update_7101() {
+  // Consequence of making each fieldset containing view mode checkboxes
+  // collapsable. See Issue #3095776:
+  // https://www.drupal.org/project/block_in_block/issues/3095776
+  if (db_table_exists('block_in_block')) {
+    $query = db_select('block_in_block', 'b')
+      ->fields(
+        'b',
+        array(
+          'module',
+          'delta',
+          'target_blocks',
+        )
+      );
+    $query->addExpression("CONCAT(b.module, '_', b.delta)", 'block_key');
+    $blocks = $query->execute()->fetchAllAssoc('block_key', PDO::FETCH_ASSOC);
+    foreach ($blocks as $block) {
+      $target_blocks = json_decode($block['target_blocks'], TRUE);
+      foreach ($target_blocks as $theme_key => $theme) {
+        foreach ($theme['node_types'] as $node_type => $view_modes) {
+          $target_blocks[$theme_key]['node_types'][$node_type] = array('view_modes' => $view_modes);
+          db_update('block_in_block')
+            ->fields(array('target_blocks' => json_encode($target_blocks)))
+            ->condition('module', $block['module'])
+            ->condition('delta', $block['delta'])
+            ->execute();
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Add 'regions' key to json in target_blocks field in block_in_block table.
+ */
+function block_in_block_update_7102() {
+  // Consequence of...
+  // See Issue #3095776:
+  // https://www.drupal.org/project/block_in_block/issues/3095776
+  if (db_table_exists('block_in_block')) {
+    // Empty target_blocks field for any blocks not being inserted.
+    db_update('block_in_block')
+      ->fields(array('target_blocks' => ''))
+      ->condition('enabled', 0)
+      ->execute();
+
+    // Get all enabled block_in_blocks and add their module/delta pairs to
+    // db api conditions to use to get their corresponding block from the block
+    // table.
+    $query = db_select('block_in_block', 'b')
+      ->fields('b', array('module', 'delta', 'target_blocks'))
+      ->condition('enabled', 1);
+    $query->addExpression("CONCAT(b.module, '_', b.delta)", 'block_key');
+    $blocks_to_update = $query->execute()->fetchAllAssoc('block_key', PDO::FETCH_ASSOC);
+    if ($blocks_to_update) {
+      $module_and_delta_pairs = db_or();
+      foreach ($blocks_to_update as $block_key => $block_to_update) {
+        $block_to_update['target_blocks'] = json_decode($block_to_update['target_blocks'], TRUE);
+        $module = $block_to_update['module'];
+        $delta = $block_to_update['delta'];
+        $blocks_to_update[$block_key] = $block_to_update;
+        $block_module_and_delta = db_and()->condition('module', $module)->condition('delta', $delta);
+        $module_and_delta_pairs->condition($block_module_and_delta);
+      }
+      // Get the blocks from the block table that were enabled to be inserted,
+      // and insert the region into the target_blocks value.
+      $block_table_query = db_select('block', 'b')
+        ->fields('b', array(
+          'bid',
+          'module',
+          'delta',
+          'theme',
+          'status',
+          'region',
+        ))
+        ->condition($module_and_delta_pairs);
+      $block_table_query->addExpression("CONCAT(b.module, '_', b.delta)", 'block_key');
+      $blocks_from_block_table = $block_table_query->execute()->fetchAll(PDO::FETCH_ASSOC);
+      foreach ($blocks_from_block_table as $block) {
+        $block_key = $block['block_key'];
+        $theme = $block['theme'];
+        if (isset($blocks_to_update[$block_key]['target_blocks'][$theme])) {
+          $target_block = $blocks_to_update[$block_key]['target_blocks'][$theme];
+          unset($blocks_to_update[$block_key]['target_blocks'][$theme]);
+          $region = $block['region'];
+          if ($region && $region != -1) {
+            $blocks_to_update[$block_key]['target_blocks'][$theme] = array(
+              'regions' => array(
+                $region => $target_block,
+              ),
+            );
+          }
+        }
+      }
+      // Update the block_in_block table with the new 'target_blocks' values
+      // containing the region.
+      foreach ($blocks_to_update as $block_to_update) {
+        db_update('block_in_block')
+          ->fields(array('target_blocks' => json_encode($block_to_update['target_blocks'])))
+          ->condition('module', $block_to_update['module'])->condition('delta', $block_to_update['delta'])
+          ->execute();
+      }
+    }
+  }
+}
