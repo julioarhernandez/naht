@@ -153,7 +153,23 @@
     <?php if (!empty($site_slogan)): ?>
       <p class="lead"><?php print $site_slogan; ?></p>
     <?php endif; ?>
-
+     <?php if (!empty($hero)): ?>
+      <div class="main-hero-figure" >
+        <img src="/sites/default/files/<?php print $hero['path']?>" data-stellar-ratio="0.7"/>
+        <div class="primary-gradient-overlay-dark"></div>
+      </div>
+      
+      <div class="main-hero-content">
+        <div class="<?php print $container_class; ?>">
+          <?php print render($title_prefix); ?>
+          <?php if (!empty($title)): ?>
+            <h1 class="page-header"><?php print $title; ?></h1>
+          <?php endif; ?>
+          <?php print render($title_suffix); ?>
+        </div>
+      </div>
+      
+      <?php endif; ?>
     <?php print render($page['header']); ?>
   </div> <!-- /#page-header -->
   <?php print render($page['post_hero']); ?>
@@ -172,11 +188,6 @@
       <?php endif; ?>
       <?php if (!empty($breadcrumb)): print $breadcrumb; endif;?>
       <a id="main-content"></a>
-      <?php print render($title_prefix); ?>
-      <?php if (!empty($title)): ?>
-        <h1 class="page-header"><?php print $title; ?></h1>
-      <?php endif; ?>
-      <?php print render($title_suffix); ?>
       <?php print $messages; ?>
       <?php if (!empty($tabs)): ?>
         <?php print render($tabs); ?>
@@ -187,7 +198,9 @@
       <?php if (!empty($action_links)): ?>
         <ul class="action-links"><?php print render($action_links); ?></ul>
       <?php endif; ?>
+      <!-- content -->
       <?php print render($page['content']); ?>
+      <!-- postcontent -->
       <?php print render($page['post_content']); ?>
     </section>
 
@@ -200,19 +213,9 @@
   </div>
 </div>
 
+
 <?php if (!empty($page['contact_form'])): ?>
-<div id="contact-form" class="section-margin-small" data-stellar-background-ratio="0.7" style="background-image: url(/sites/all/themes/naht/images/nurse-bg.jpg)">
-  <div class="primary-gradient-overlay-dark"></div>
-  <div class="container">
-    <div class="row">
-      <div class="col-md-6">
-      </div>
-      <div class="col-md-6">
-        <?php print render($page['contact_form']); ?>
-      </div>
-    </div>
-  </div>
-</div>
+  <?php print render($page['contact_form']); ?>
 <?php endif; ?>
 
 <?php if (!empty($page['post_script'])): ?>
@@ -245,6 +248,6 @@
     </div>
     <?php if (!empty($page['footer_copyright'])): ?>
       <?php print render($page['footer_copyright']); ?>
-    <?php endif; ?>
+    <?php endif; ?>    
   </footer>
 <?php endif; ?>

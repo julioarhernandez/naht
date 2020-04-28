@@ -10,6 +10,8 @@ base theme = bootstrap
 
 regions[top_page]       = 'Top header Bar'
 regions[navigation]     = 'Navigation'
+regions[navblock_1]     = 'Navigation block 1'
+regions[navblock_2]     = 'Navigation block 2'
 regions[header]         = 'Top Bar'
 regions[post_hero]      = 'Post Hero Full Width'
 regions[highlighted]    = 'Highlighted'
@@ -24,10 +26,7 @@ regions[pre_footer]     = 'preFooter'
 regions[footer]         = 'Footer'
 regions[page_top]       = 'Page top'
 regions[page_bottom]    = 'Page bottom'
-regions[primary_nav_block_1]    = 'Navigation block 1'
-regions[primary_nav_block_2]    = 'Navigation block 2'
-
-
+regions[footer_copyright]   = 'Footer Copyright'
 
 ;;;;;;;;;;;;;;;;;;;;;
 ;; Stylesheets

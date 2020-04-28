@@ -46,7 +46,7 @@
  * @ingroup templates
  */
 ?>
-<section id="<?php print $block_html_id; ?>" class="block-contact-form section-margin-small <?php print $classes; ?> clearfix"<?php print $attributes; ?> data-stellar-background-ratio="0.7" style="background-image: url(./sites/all/themes/naht/images/nurse-bg.jpg)">
+<section id="<?php print $block_html_id; ?>" class="block-contact-form section-margin-small <?php print $classes; ?> clearfix"<?php print $attributes; ?> data-stellar-background-ratio="0.7" style="background-image: url(/sites/all/themes/naht/images/nurse-bg.jpg)">
   <div class="primary-gradient-overlay-dark"></div>
   <div class="container">
     <div class="row">

@@ -103,34 +103,27 @@
             <span class="icon-bar"></span>
           </button>
         <?php endif; ?>
+        
         <div class="d-flex hidden-xs h-100">
           <div class="col-md d-flex topper align-items-center align-items-stretch py-md-4">
-            <div class="icon d-flex justify-content-center align-items-center">
-              <span class="icon-paper-plane"></span>
-            </div>
-            <div class="text">
-              <span>Email</span>
-              <span>youremail@email.com</span>
-            </div>
-            <?php print render($primary_nav_block_1); ?>
+            <?php if (!empty($page['navblock_1'])): ?>
+              <?php print render($page['navblock_1']); ?>
+            <?php endif; ?>
           </div>
           <div class="col-md d-flex topper align-items-center align-items-stretch py-md-4">
-            <div class="icon d-flex justify-content-center align-items-center"><span class="icon-phone2"></span></div>
-            <div class="text">
-              <span>Call</span>
-              <span>Call Us: + 1235 2355 98</span>
-            </div>
-            <?php print render($primary_nav_block_2); ?>
+            <?php if (!empty($page['navblock_2'])): ?>
+              <?php print render($page['navblock_2']); ?>
+            <?php endif; ?>
           </div>
           <div class="col-md topper d-flex align-items-center justify-content-end py-md-4">
             <p class="mb-0">
             <?php if (!empty($secondary_nav)): ?>
                 <?php print render($secondary_nav); ?>
               <?php endif; ?>
-              
             </p>
           </div>
         </div>
+
       </div>      
       <div class="col-sm-12 col-md-12">
         <?php if (!empty($primary_nav) || !empty($secondary_nav) || !empty($page['navigation'])): ?>
@@ -164,7 +157,7 @@
     <?php endif; ?>
      <?php if (!empty($hero)): ?>
       <div class="main-hero-figure" >
-        <img src="./sites/default/files/<?php print $hero['path']?>" data-stellar-ratio="0.7"/>
+        <img src="/sites/default/files/<?php print $hero['path']?>" data-stellar-ratio="0.7"/>
         <div class="primary-gradient-overlay-dark"></div>
       </div>
       
@@ -255,17 +248,8 @@
 	<?php print render($page['footer']); ?>
     </div>
     </div>
-    
-   
-    <div id="copyright" class="mt30">
-      <div class="container pt30">
-        
-       <div class="totop pull-right"><a href="#top">&nbsp;↑<br><small>TOP</small></a></div>
-       <div class="small">&copy; Copyright 2020 mynaht.com | National Association of Healthcare Technicians | <a href="/terms-and-conditions">Terms and Conditions</a> | <a href="/privacy-policy">Privacy Policy </a> <span class="designCredit"> | Developed by Bizmarketing.us</span>
-       </div>
-       
-     </div>
-   </div>
-      
+    <?php if (!empty($page['footer_copyright'])): ?>
+      <?php print render($page['footer_copyright']); ?>
+    <?php endif; ?>
   </footer>
 <?php endif; ?>

@@ -95,19 +95,21 @@
     <?php endif; ?>
   </header>
   <div class="row">
-      <div class="col-md-7">
-        <?php
-          // Hide comments, tags, and links now so that we can render them later.
-          hide($content['comments']);
-          hide($content['field_header_image']);
-          hide($content['links']);
-          hide($content['field_tags']);
-          print render($content);
-        ?>    
+      <div class="col-sm-12 col-md-7">
+        <div class="form-wrapper">
+          <?php
+            // Hide comments, tags, and links now so that we can render them later.
+            hide($content['comments']);
+            hide($content['field_header_image']);
+            hide($content['links']);
+            hide($content['field_tags']);
+            print render($content);
+          ?>    
+        </div>
       </div>  
-      <div class="col-md-5">
+      <div class="col-sm-12 col-md-5">
         <div class="align-items-center overflow-hidden d-flex justify-content-center">
-          <img src="./sites/all/themes/naht/images/contact-us-side-image.jpg" />
+          <iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2970.321444970138!2d-80.30283321409308!3d25.807270277395173!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x88d9b98b07acba59%3A0xb9409a756ccdd13d!2s6405%20NW%2036th%20St%20%23109%2C%20Virginia%20Gardens%2C%20FL%2033166!5e0!3m2!1sen!2sus!4v1585325563217!5m2!1sen!2sus" width="460" height="600" frameborder="0" style="border:0;" allowfullscreen="" aria-hidden="false" tabindex="0"></iframe>
         </div>
       </div>
   </div>

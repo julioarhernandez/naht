@@ -9,6 +9,13 @@ function naht_preprocess_page(&$variables) {
 		if (isset($variables['node']->field_header_image[LANGUAGE_NONE][0])){
 			$img = $variables['node']->field_header_image[LANGUAGE_NONE][0];
 			$variables['hero']['path'] = $img['filename'];
+		}elseif (isset($variables['node']->field_certification_image[LANGUAGE_NONE][0])){
+				$img = $variables['node']->field_certification_image[LANGUAGE_NONE][0];
+				$variables['hero']['path'] = $img['filename'];
+		}else{
+			if (!$variables['is_front']) {
+				$variables['hero']['path'] = 'nurse-bg.jpg';
+			  }
 		}
 		
 	 // If the content type's machine name is "my_machine_name" the file
